@@ -4,7 +4,7 @@ import Team from './Team.vue'
 import { io } from 'socket.io-client'
 
 export default {
-  data() { return { socket: null, phase: 'home', room: null, message: '', result: null, remaining: 0, now: Date.now(), timerId: null, clockOffset: 0, clockSamples: [], marathonJoinPreview: null, name: localStorage.name || '', server: `${location.protocol}//${location.hostname}:3001`, form: { mode: 'standard' }, join: { code: '', team: 1 }, copied: false } },
+  data() { return { socket: null, phase: 'home', room: null, message: '', result: null, remaining: 0, now: Date.now(), timerId: null, clockOffset: 0, clockSamples: [], questionCache: [], marathonJoinPreview: null, name: localStorage.name || '', server: `${location.protocol}//${location.hostname}:3001`, form: { mode: 'standard' }, join: { code: '', team: 1 }, copied: false } },
   computed: {
     me() { return this.room?.players.find(p => p.id === this.socket?.id) },
     isHost() { return this.room?.host === this.socket?.id },
@@ -39,9 +39,15 @@ export default {
         this.clockSamples=[]
         this.syncClock()
       })
+      this.socket.on('q', ([start,questions]) => {
+        for(let i=0;i<questions.length;i++)this.questionCache[start+i]=questions[i]
+        if(this.room?.status==='playing'&&this.questionCache[this.room.index])this.room={...this.room,question:this.questionCache[this.room.index]}
+      })
       this.socket.on('room:update', room => {
+        if(room.status==='countdown'&&this.room?.status!=='countdown')this.questionCache=[]
         const questionChanged=room.status==='playing'&&(this.room?.status!=='playing'||this.room?.index!==room.index)
         if (this.room?.index !== room.index || this.room?.status !== room.status) this.result=null
+        if(room.status==='playing')room.question=this.questionCache[room.index]||null
         this.room=room
         this.phase=room.status === 'lobby' ? 'lobby' : room.status === 'countdown' ? 'countdown' : room.status === 'playing' ? 'game' : 'result'
         if(questionChanged)this.syncClock()
@@ -101,7 +107,7 @@ export default {
       }
       if(ok){this.copied=true;this.message='';setTimeout(()=>this.copied=false,1200)}else this.message=`复制失败，请长按房间码 ${value} 手动复制`
     },
-    leave() { this.socket?.disconnect();this.socket=null;this.room=null;this.phase='home';this.result=null;this.message='' }
+    leave() { this.socket?.disconnect();this.socket=null;this.room=null;this.questionCache=[];this.phase='home';this.result=null;this.message='' }
   },
   components: { Team }
 }

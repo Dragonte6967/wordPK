@@ -37,13 +37,19 @@ try {
   await readyState
   let countdownPromise=waitState(clients[0],r=>r.status==='countdown'&&r.startsAt>Date.now())
   let statePromise=waitState(clients[0],r=>r.status==='playing')
+  const normalPrefetchPromise=once(clients[0],'q')
   assert.equal((await rpc(clients[0],'game:start',{})).ok,true)
   assert.equal((await countdownPromise).question,null)
+  const [normalPrefetchPacket]=await normalPrefetchPromise
+  assert.equal(normalPrefetchPacket[0],0)
+  assert.equal(normalPrefetchPacket[1].length,2)
+  assert.ok(normalPrefetchPacket[1].every(question=>question.options.length===4&&!Object.hasOwn(question,'answer')))
   let room=await statePromise
   assert.equal(room.config.dictionary,'ky')
   assert.equal(room.players.length,10)
   const timings=[]
-  assert.equal(new Set(room.question.options.map(o=>o.pos+'|'+o.meaning)).size,4)
+  assert.equal(room.question,null)
+  assert.equal(new Set(normalPrefetchPacket[1][0].options.map(o=>o.pos+'|'+o.meaning)).size,4)
   let t=performance.now()
   const firstReplies=await Promise.all(clients.slice(0,9).map((s,i)=>rpc(s,'answer',{answer:i%4,index:0})))
   timings.push(performance.now()-t)
@@ -145,10 +151,15 @@ try {
   assert.equal(preview.preview.mode,'marathon')
   countdownPromise=waitState(marathon,r=>r.status==='countdown')
   statePromise=waitState(marathon,r=>r.status==='playing')
+  const marathonPrefetchPromise=once(marathon,'q')
   assert.equal((await rpc(marathon,'game:start',{})).ok,true)
   await countdownPromise
+  const [marathonPrefetchPacket]=await marathonPrefetchPromise
   room=await statePromise
-  assert.equal(room.question.options.length,4)
+  assert.equal(marathonPrefetchPacket[0],0)
+  assert.equal(marathonPrefetchPacket[1].length,10)
+  assert.ok(marathonPrefetchPacket[1].every(question=>question.options.length===4&&!Object.hasOwn(question,'answer')))
+  assert.equal(room.question,null)
   assert.equal(room.players.length,1)
   console.log(`PASS: room settings, balanced 1v1/5v5, rejected balanced 2v1, allowed unbalanced 2v1, marathon, countdown, scoring, rematch, unanswered penalty, and result matrix. Answer batch max ${Math.max(...timings).toFixed(1)} ms.`)
 } finally {

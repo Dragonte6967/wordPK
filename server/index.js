@@ -63,22 +63,43 @@ function sample(pool, n) {
   return copy.slice(0,n)
 }
 const pick = (room,n) => sample(dictionaries[room.config.dictionary].words,n)
-function publicRoom(room) { return { code: room.code, host: room.host, config: room.config, teamNames: room.teamNames, status: room.status, index: room.index, deadline: room.deadline, startsAt: room.startsAt, marathonWinnerId: room.marathonWinnerId, players: [...room.players.values()], question: room.question && { word: room.question.word, phonetic: room.question.phonetic, options: room.question.options }, results: room.status === 'finished' ? room.results : [], finished: room.status === 'finished' } }
+function publicRoom(room) { return { code: room.code, host: room.host, config: room.config, teamNames: room.teamNames, status: room.status, index: room.index, deadline: room.deadline, startsAt: room.startsAt, marathonWinnerId: room.marathonWinnerId, players: [...room.players.values()], question: null, results: room.status === 'finished' ? room.results : [], finished: room.status === 'finished' } }
 function emit(room) { io.to(room.code).emit('room:update', publicRoom(room)) }
 function destroyRoom(room, message, reason='unknown') {
   if(rooms.get(room.code)!==room)return
-  clearTimeout(room.timer);clearTimeout(room.startTimer)
+  clearTimeout(room.timer);clearTimeout(room.startTimer);clearTimeout(room.prefetchTimer)
   rooms.delete(room.code)
   logEvent('room_destroyed',{roomCode:room.code,roomType:roomType(room),ip:room.creatorIp,reason})
   if(message){io.to(room.code).emit('room:closed',{message});io.in(room.code).socketsLeave(room.code)}
 }
+function buildQuestions(room,n) {
+  const options=dictionaries[room.config.dictionary].options
+  return pick(room,n).map(word=>{
+    const right={meaning:word.meaning,pos:word.pos}
+    const choices=sample([right,...sample(options.filter(x=>x.meaning!==word.meaning),3)],4)
+    return {...word,options:choices,answer:choices.indexOf(right)}
+  })
+}
+const publicQuestion = question => ({word:question.word,phonetic:question.phonetic,options:question.options})
+function sendPrefetch(room,start,questions) {
+  io.to(room.code).emit('q',[start,questions.map(publicQuestion)])
+}
+function appendMarathonBatch(room) {
+  if(room.status!=='playing')return
+  const start=room.questions.length,batch=buildQuestions(room,10)
+  room.questions.push(...batch);sendPrefetch(room,start,batch)
+}
 function makeQuestion(room) {
-  const answer=room.deck[room.index],right={meaning:answer.meaning,pos:answer.pos},options=dictionaries[room.config.dictionary].options
-  const choices=sample([right,...sample(options.filter(x=>x.meaning!==answer.meaning),3)],4)
+  const question=room.questions[room.index]
+  if(!question)return
   room.answered=new Map();room.deadline=Date.now()+room.config.seconds*1000
-  room.question={...answer,options:choices,answer:choices.findIndex(x=>x===right)}
+  room.question=question
   const expectedIndex=room.index
   room.timer=setTimeout(()=>finishQuestion(room,expectedIndex),room.config.seconds*1000)
+  if(room.config.mode==='marathon'&&expectedIndex%10===4){
+    clearTimeout(room.prefetchTimer)
+    room.prefetchTimer=setTimeout(()=>{room.prefetchTimer=null;if(room.status==='playing'&&room.index===expectedIndex)appendMarathonBatch(room)},room.config.seconds*30)
+  }
 }
 function finishQuestion(room,expectedIndex) {
   if(room.status!=='playing'||room.index!==expectedIndex)return
@@ -93,14 +114,13 @@ function finishQuestion(room,expectedIndex) {
     room.unansweredRounds=room.answered.size===0?(room.unansweredRounds||0)+1:0
     if(room.unansweredRounds>=10){destroyRoom(room,'马拉松已连续 10 题无人作答，房间已自动销毁','marathon_10_unanswered');return}
     if(room.marathonWinnerId){room.status='finished';room.question=null;room.deadline=null;room.timer=null;logMatchEnd(room);emit(room);return}
-    room.deck.push(...pick(room,1))
   }
-  if(room.index>=room.deck.length){room.status='finished';room.question=null;room.deadline=null;room.timer=null;logMatchEnd(room);emit(room);return}
+  if(room.index>=room.questions.length){room.status='finished';room.question=null;room.deadline=null;room.timer=null;logMatchEnd(room);emit(room);return}
   makeQuestion(room);emit(room)
 }
 function beginGame(room){
   if(room.status!=='countdown')return
-  room.status='playing';room.startsAt=null;room.deck=room.config.mode==='marathon'?pick(room,1):pick(room,room.config.rounds)
+  room.status='playing';room.startsAt=null
   makeQuestion(room);emit(room)
 }
 io.on('connection', socket => {
@@ -120,7 +140,7 @@ io.on('connection', socket => {
   socket.on('room:update-settings', (patch, done) => { const room=[...rooms.values()].find(r=>r.host===socket.id);if(!room)return done?.({ok:false,message:'只有房主可以修改房间设置'});if(room.status!=='lobby')return done?.({ok:false,message:'对战开始后无法修改设置'});if(Object.hasOwn(patch||{},'seconds'))room.config.seconds=Math.min(10,Math.max(3,Number(patch.seconds)||5));if(Object.hasOwn(patch||{},'dictionary')&&dictionaries[patch.dictionary])room.config.dictionary=patch.dictionary;if(room.config.mode==='standard'){if(Object.hasOwn(patch||{},'rounds'))room.config.rounds=Math.min(50,Math.max(1,Number(patch.rounds)||20));if(Object.hasOwn(patch||{},'unbalanced'))room.config.unbalanced=Boolean(patch.unbalanced)}for(const player of room.players.values())player.ready=player.id===room.host;emit(room);done?.({ok:true}) })
   socket.on('room:switch-team', ({ team }, done) => { const room=[...rooms.values()].find(r=>r.players.has(socket.id));if(!room)return done?.({ok:false,message:'房间不存在'});if(room.config.mode==='marathon')return done?.({ok:true});if(room.status!=='lobby')return done?.({ok:false,message:'游戏已开始，无法换队'});if(team!==1&&team!==2)return done?.({ok:false,message:'队伍无效'});const player=room.players.get(socket.id);if(player.team===team)return done?.({ok:true});if([...room.players.values()].filter(p=>p.team===team).length>=room.config.size)return done?.({ok:false,message:'该队已满'});player.team=team;emit(room);done?.({ok:true}) })
   socket.on('room:rename-team', ({ team, name }, done) => { const room=[...rooms.values()].find(r=>r.players.has(socket.id));if(!room)return done?.({ok:false,message:'房间不存在'});if(room.status!=='lobby')return done?.({ok:false,message:'游戏已开始，无法修改队名'});const player=room.players.get(socket.id);if(player.team!==team)return done?.({ok:false,message:'只能修改自己队伍的名称'});const clean=String(name??'').trim().replace(/\s+/g,' ');if(!clean)return done?.({ok:false,message:'队名不能为空'});if([...clean].length>10)return done?.({ok:false,message:'队名最多 10 个字符'});room.teamNames[team]=clean;emit(room);done?.({ok:true}) })
-  socket.on('game:start', (_, done) => { const room=[...rooms.values()].find(r=>r.host===socket.id);if(!room)return;const marathon=room.config.mode==='marathon',teams=[...room.players.values()].reduce((count,p)=>(count[p.team]=(count[p.team]||0)+1,count),{});const enoughPlayers=marathon?room.players.size>=1:teams[1]>0&&teams[2]>0&&(room.config.unbalanced||teams[1]===teams[2]);if(!enoughPlayers)return done?.({ok:false,message:room.config.unbalanced?'双方至少需要 1 人':'双方各至少 1 人且人数必须相等'});if([...room.players.values()].some(p=>p.id!==room.host&&!p.ready))return done?.({ok:false,message:'仍有队员未准备'});room.index=0;room.results=[];room.marathonWinnerId=null;room.question=null;room.deadline=null;room.endLogged=false;room.status='countdown';room.startsAt=Date.now()+startCountdownMs;logEvent('match_started',{roomCode:room.code,roomType:roomType(room),players:[...room.players.values()].map(player=>player.name),dictionary:dictionaries[room.config.dictionary].label,totalWords:marathon?null:room.config.rounds,speedSeconds:room.config.seconds});emit(room);room.startTimer=setTimeout(()=>beginGame(room),startCountdownMs);done?.({ok:true}) })
+  socket.on('game:start', (_, done) => { const room=[...rooms.values()].find(r=>r.host===socket.id);if(!room)return;const marathon=room.config.mode==='marathon',teams=[...room.players.values()].reduce((count,p)=>(count[p.team]=(count[p.team]||0)+1,count),{});const enoughPlayers=marathon?room.players.size>=1:teams[1]>0&&teams[2]>0&&(room.config.unbalanced||teams[1]===teams[2]);if(!enoughPlayers)return done?.({ok:false,message:room.config.unbalanced?'双方至少需要 1 人':'双方各至少 1 人且人数必须相等'});if([...room.players.values()].some(p=>p.id!==room.host&&!p.ready))return done?.({ok:false,message:'仍有队员未准备'});room.index=0;room.results=[];room.marathonWinnerId=null;room.question=null;room.deadline=null;room.endLogged=false;room.questions=buildQuestions(room,marathon?10:room.config.rounds);room.status='countdown';room.startsAt=Date.now()+startCountdownMs;logEvent('match_started',{roomCode:room.code,roomType:roomType(room),players:[...room.players.values()].map(player=>player.name),dictionary:dictionaries[room.config.dictionary].label,totalWords:marathon?null:room.config.rounds,speedSeconds:room.config.seconds});emit(room);sendPrefetch(room,0,room.questions);room.startTimer=setTimeout(()=>beginGame(room),startCountdownMs);done?.({ok:true}) })
   socket.on('game:rematch', (_, done) => {
     const room=[...rooms.values()].find(r=>r.players.has(socket.id))
     if(!room)return done?.({ok:false,message:'房间不存在'})
@@ -129,7 +149,7 @@ io.on('connection', socket => {
     clearTimeout(room.timer)
     for(const [id,player] of room.players){if(!player.connected)room.players.delete(id)}
     for(const player of room.players.values()){player.score=0;player.ready=player.id===room.host}
-    room.status='lobby';room.index=0;room.results=[];room.deck=[];room.answered=new Map();room.question=null;room.deadline=null;room.startsAt=null;room.marathonWinnerId=null;room.unansweredRounds=0;room.timer=null;room.endLogged=false
+    room.status='lobby';room.index=0;room.results=[];room.questions=[];room.answered=new Map();room.question=null;room.deadline=null;room.startsAt=null;room.marathonWinnerId=null;room.unansweredRounds=0;room.timer=null;room.prefetchTimer=null;room.endLogged=false
     emit(room);done?.({ok:true})
   })
   socket.on('answer', ({ answer, index }, done) => { const room=[...rooms.values()].find(r=>r.players.has(socket.id));if(!room||room.status!=='playing'||index!==room.index||Date.now()>room.deadline||!Number.isInteger(answer)||answer<0||answer>3)return done?.({ok:false});if(room.answered.has(socket.id))return done?.(room.answered.get(socket.id));const p=room.players.get(socket.id),correct=answer===room.question.answer;const percent=Math.max(0,Math.min(100,Math.round((room.deadline-Date.now())/(room.config.seconds*10))));const points=correct?percent:-percent;p.score+=points;const result={ok:true,correct,answer:room.question.answer,points,choice:answer};room.answered.set(socket.id,result);if(room.config.mode==='marathon'&&p.score>MARATHON_TARGET&&!room.marathonWinnerId){room.marathonWinnerId=p.id;clearTimeout(room.timer);finishQuestion(room,index)}else emit(room);done?.(result) })
