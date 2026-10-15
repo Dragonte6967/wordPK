@@ -4,7 +4,7 @@ import Team from './Team.vue'
 import { io } from 'socket.io-client'
 
 export default {
-  data() { return { socket: null, phase: 'home', room: null, message: '', result: null, remaining: 0, now: Date.now(), timerId: null, clockOffset: 0, clockSamples: [], questionCache: [], marathonJoinPreview: null, name: localStorage.name || '', server: `${location.protocol}//${location.hostname}:3001`, form: { mode: 'standard' }, join: { code: '', team: 1 }, copied: false } },
+  data() { return { socket: null, phase: 'home', room: null, message: '', noticeModal: '', result: null, remaining: 0, now: Date.now(), timerId: null, clockOffset: 0, clockSamples: [], questionCache: [], marathonJoinPreview: null, name: localStorage.name || '', server: `${location.protocol}//${location.hostname}:3001`, form: { mode: 'standard' }, join: { code: '', team: 1 }, copied: false } },
   computed: {
     me() { return this.room?.players.find(p => p.id === this.socket?.id) },
     isHost() { return this.room?.host === this.socket?.id },
@@ -25,11 +25,16 @@ export default {
     ranking() { return [...(this.room?.players||[])].sort((a,b)=>b.score-a.score) },
     countdownNumber() { return Math.max(1,Math.ceil(((this.room?.startsAt||this.now)-this.now)/1000)) },
     myRank() { return this.ranking.findIndex(p=>p.id===this.me?.id)+1 },
-    myCorrect() { return (this.room?.results||[]).filter(r=>this.answerRecord(r,this.me?.id)?.correct).length }
+    myCorrect() { return (this.room?.results||[]).filter(r=>this.answerRecord(r,this.me?.id)?.correct).length },
+    noticeTitle() { return this.noticeModal.includes('销毁')||this.noticeModal.includes('关闭')?'房间已关闭':'无法加入房间' }
   },
   mounted() { this.timerId=setInterval(()=>{this.now=Date.now()+this.clockOffset;this.remaining=this.room?.deadline?Math.max(0,this.room.deadline-this.now):0},100) },
   beforeUnmount() { clearInterval(this.timerId);this.socket?.disconnect() },
   methods: {
+    decodeRoom(data) {
+      const config=data.g
+      return {code:data.c,host:data.h,config:{mode:config.m,size:config.z,rounds:config.r,seconds:config.s,unbalanced:Boolean(config.u),dictionary:config.d,target:config.t},teamNames:{1:data.n[0],2:data.n[1]},status:data.s,index:data.i,deadline:data.d??null,startsAt:data.a??null,marathonWinnerId:data.w??null,players:data.p.map(player=>({id:player.i,name:player.n,team:player.t,score:player.s,ready:Boolean(player.r),connected:Boolean(player.c)})),question:null,results:(data.r||[]).map(round=>({word:round.w,meaning:round.m,pos:round.o,answers:round.a.map(answer=>({playerId:answer.i,correct:Boolean(answer.c),points:answer.p,choice:answer.h,unanswered:Boolean(answer.u)}))})),finished:data.s==='finished'}
+    },
     connect() {
       if (this.socket?.active || this.socket?.connected) return true
       if (!this.server) { this.message='请输入服务器地址'; return false }
@@ -40,10 +45,16 @@ export default {
         this.syncClock()
       })
       this.socket.on('q', ([start,questions]) => {
-        for(let i=0;i<questions.length;i++)this.questionCache[start+i]=questions[i]
+        for(let i=0;i<questions.length;i++){const question=questions[i];this.questionCache[start+i]={word:question[0],phonetic:question[1],options:question[2].map(option=>({meaning:option[0],pos:option[1]}))}}
         if(this.room?.status==='playing'&&this.questionCache[this.room.index])this.room={...this.room,question:this.questionCache[this.room.index]}
       })
-      this.socket.on('room:update', room => {
+      this.socket.on('s', ([index,playerId,score]) => {
+        if(this.room?.status!=='playing'||this.room.index!==index)return
+        const player=this.room.players.find(item=>item.id===playerId)
+        if(player)player.score=score
+      })
+      this.socket.on('r', payload => {
+        const room=this.decodeRoom(payload)
         if(room.status==='countdown'&&this.room?.status!=='countdown')this.questionCache=[]
         const questionChanged=room.status==='playing'&&(this.room?.status!=='playing'||this.room?.index!==room.index)
         if (this.room?.index !== room.index || this.room?.status !== room.status) this.result=null
@@ -53,7 +64,7 @@ export default {
         if(questionChanged)this.syncClock()
       })
       this.socket.on('connect_error', () => this.message='无法连接服务器，请检查局域网地址')
-      this.socket.on('room:closed', ({message}) => { this.room=null;this.result=null;this.phase='home';this.message=message||'房间已自动销毁' })
+      this.socket.on('x', message => { this.room=null;this.result=null;this.phase='home';this.showNotice(message||'房间已自动销毁') })
       return true
     },
     syncClock() {
@@ -72,10 +83,12 @@ export default {
         this.now=Date.now()+this.clockOffset
       })
     },
-    create() { if(!this.name.trim()) return this.message='先取一个响亮的昵称'; localStorage.name=this.name; this.connect(); this.socket.emit('room:create',{name:this.name,config:this.form}, r=>{ if(r.ok){this.room=r.room;this.phase='lobby'} }) },
-    enter() { if(!this.name.trim()) return this.message='先取一个响亮的昵称';if(!this.join.code.trim())return this.message='请输入房间码';localStorage.name=this.name;this.connect();this.socket.emit('room:preview',{code:this.join.code},r=>{if(!r?.ok)return this.message=r?.message||'无法读取房间';if(r.preview.mode==='marathon'){this.marathonJoinPreview=r.preview;this.message=''}else this.joinRoom()}) },
-    joinRoom() { this.marathonJoinPreview=null;this.socket.emit('room:join',{code:this.join.code,name:this.name,team:this.join.team},r=>{if(r.ok){this.room=r.room;this.phase='lobby';this.message=''}else this.message=r.message}) },
+    create() { if(!this.name.trim()) return this.message='先取一个响亮的昵称'; localStorage.name=this.name; this.connect(); this.socket.emit('room:create',{name:this.name,config:this.form}, r=>{ if(r.ok){this.room=this.decodeRoom(r.room);this.phase='lobby'} }) },
+    enter() { if(!this.name.trim()) return this.message='先取一个响亮的昵称';if(!this.join.code.trim())return this.message='请输入房间码';localStorage.name=this.name;this.connect();this.socket.emit('room:preview',{code:this.join.code},r=>{if(!r?.ok)return this.showNotice(r?.message||'无法读取房间');if(r.preview.mode==='marathon'){this.marathonJoinPreview=r.preview;this.message=''}else this.joinRoom()}) },
+    joinRoom() { this.marathonJoinPreview=null;this.socket.emit('room:join',{code:this.join.code,name:this.name,team:this.join.team},r=>{if(r.ok){this.room=this.decodeRoom(r.room);this.phase='lobby';this.message=''}else this.showNotice(r.message||'无法加入房间')}) },
     cancelMarathonJoin() { this.marathonJoinPreview=null },
+    showNotice(message) { this.message='';this.noticeModal=message },
+    closeNotice() { this.noticeModal='' },
     start() { this.socket.emit('game:start',{},r=>{ if(!r.ok) this.message=r.message }) },
     switchTeam(team) { if(this.me?.team===team)return;this.socket.emit('room:switch-team',{team},r=>{if(!r?.ok)this.message=r?.message||'切换队伍失败';else this.message=''}) },
     toggleReady() { this.socket.emit('room:ready',{ready:!this.me?.ready},r=>{if(!r?.ok)this.message=r?.message||'准备状态更新失败';else this.message=''}) },
@@ -85,9 +98,9 @@ export default {
     answer(i) {
       if(this.result) return
       const index=this.room.index
-      this.socket.timeout(5000).emit('answer',{answer:i,index},(error,r)=>{
+      this.socket.timeout(5000).emit('answer',{answer:i,index},(error,payload)=>{
         if (error) { this.message='答题响应超时，请检查连接'; return }
-        if (this.room?.index === index && r.ok) this.result=r
+        if (this.room?.index === index && payload?.[0]) this.result={ok:true,correct:Boolean(payload[1]),answer:payload[2],points:payload[3],choice:payload[4]}
       })
     },
     answerRecord(round,playerId) { return round.answers.find(a=>a.playerId===playerId) },
@@ -115,6 +128,13 @@ export default {
 <template>
 
   <main><header><div class="brand"><span>W</span> WORD <b>PK</b></div><div class="online">● 局域网实时对战</div></header>
+  <div v-if="noticeModal" class="modalMask" @click.self="closeNotice">
+    <div class="marathonModal" role="alertdialog" aria-modal="true" aria-labelledby="notice-title">
+      <span class="modalFlag">!</span><h2 id="notice-title">{{noticeTitle}}</h2>
+      <p>{{noticeModal}}</p>
+      <div class="modalActions"><button @click="closeNotice">我知道了</button></div>
+    </div>
+  </div>
   <div v-if="marathonJoinPreview" class="modalMask" @click.self="cancelMarathonJoin">
     <div class="marathonModal" role="dialog" aria-modal="true" aria-labelledby="marathon-title">
       <span class="modalFlag">🏁</span><h2 id="marathon-title">这是一场耐力赛</h2>

@@ -5,11 +5,12 @@ import { io } from 'socket.io-client'
 
 const server=spawn(process.execPath,['server/index.js'],{env:{...process.env,PORT:'3099',SOCKET_PORT:'3100',START_COUNTDOWN_MS:'120',LOG_FILE:'logs/smoke.log'},stdio:['ignore','pipe','pipe']})
 const clients=[]
-const rpc=(s,event,data)=>s.timeout(3000).emitWithAck(event,data)
+const decodeRoom=data=>{const config=data.g;return {code:data.c,host:data.h,config:{mode:config.m,size:config.z,rounds:config.r,seconds:config.s,unbalanced:Boolean(config.u),dictionary:config.d,target:config.t},teamNames:{1:data.n[0],2:data.n[1]},status:data.s,index:data.i,deadline:data.d??null,startsAt:data.a??null,marathonWinnerId:data.w??null,players:data.p.map(player=>({id:player.i,name:player.n,team:player.t,score:player.s,ready:Boolean(player.r),connected:Boolean(player.c)})),question:null,results:(data.r||[]).map(round=>({word:round.w,meaning:round.m,pos:round.o,answers:round.a.map(answer=>({playerId:answer.i,correct:Boolean(answer.c),points:answer.p,choice:answer.h,unanswered:Boolean(answer.u)}))})),finished:data.s==='finished'}}
+const rpc=async(s,event,data)=>{const response=await s.timeout(3000).emitWithAck(event,data);if(response?.room)response.room=decodeRoom(response.room);return response}
 const waitState=(socket,predicate)=>new Promise((resolve,reject)=>{
-  const timer=setTimeout(()=>{socket.off('room:update',listener);reject(new Error('state timeout'))},6000)
-  function listener(room){if(predicate(room)){clearTimeout(timer);socket.off('room:update',listener);resolve(room)}}
-  socket.on('room:update',listener)
+  const timer=setTimeout(()=>{socket.off('r',listener);reject(new Error('state timeout'))},6000)
+  function listener(payload){const room=decodeRoom(payload);if(predicate(room)){clearTimeout(timer);socket.off('r',listener);resolve(room)}}
+  socket.on('r',listener)
 })
 try {
   await Promise.race([once(server.stdout,'data'),once(server,'exit').then(()=>{throw new Error('server exited')})])
@@ -43,18 +44,18 @@ try {
   const [normalPrefetchPacket]=await normalPrefetchPromise
   assert.equal(normalPrefetchPacket[0],0)
   assert.equal(normalPrefetchPacket[1].length,2)
-  assert.ok(normalPrefetchPacket[1].every(question=>question.options.length===4&&!Object.hasOwn(question,'answer')))
+  assert.ok(normalPrefetchPacket[1].every(question=>question.length===3&&question[2].length===4))
   let room=await statePromise
   assert.equal(room.config.dictionary,'ky')
   assert.equal(room.players.length,10)
   const timings=[]
   assert.equal(room.question,null)
-  assert.equal(new Set(normalPrefetchPacket[1][0].options.map(o=>o.pos+'|'+o.meaning)).size,4)
+  assert.equal(new Set(normalPrefetchPacket[1][0][2].map(option=>option[1]+'|'+option[0])).size,4)
   let t=performance.now()
   const firstReplies=await Promise.all(clients.slice(0,9).map((s,i)=>rpc(s,'answer',{answer:i%4,index:0})))
   timings.push(performance.now()-t)
-  assert.ok(firstReplies.every(r=>r.ok&&Number.isInteger(r.answer)&&Number.isInteger(r.points)))
-  const wrongIndex=firstReplies.findIndex(r=>!r.correct)
+  assert.ok(firstReplies.every(reply=>reply[0]&&Number.isInteger(reply[2])&&Number.isInteger(reply[3])))
+  const wrongIndex=firstReplies.findIndex(reply=>!reply[1])
   assert.ok(wrongIndex>=0)
   assert.deepEqual(await rpc(clients[0],'answer',{answer:0,index:0}),firstReplies[0])
   statePromise=waitState(clients[0],r=>r.index===1)
@@ -65,8 +66,8 @@ try {
   const secondParticipants=clients.slice(0,9).filter((_,i)=>i!==wrongIndex)
   const secondReplies=await Promise.all(secondParticipants.map(s=>rpc(s,'answer',{answer:0,index:1})))
   timings.push(performance.now()-t)
-  assert.ok(secondReplies.every(r=>r.ok&&Number.isInteger(r.points)))
-  assert.equal((await rpc(secondParticipants[0],'answer',{answer:0,index:0})).ok,false)
+  assert.ok(secondReplies.every(reply=>reply[0]&&Number.isInteger(reply[3])))
+  assert.equal((await rpc(secondParticipants[0],'answer',{answer:0,index:0}))[0],0)
   statePromise=waitState(clients[0],r=>r.index===2)
   room=await statePromise
   assert.equal(room.status,'finished')
@@ -158,7 +159,7 @@ try {
   room=await statePromise
   assert.equal(marathonPrefetchPacket[0],0)
   assert.equal(marathonPrefetchPacket[1].length,10)
-  assert.ok(marathonPrefetchPacket[1].every(question=>question.options.length===4&&!Object.hasOwn(question,'answer')))
+  assert.ok(marathonPrefetchPacket[1].every(question=>question.length===3&&question[2].length===4))
   assert.equal(room.question,null)
   assert.equal(room.players.length,1)
   console.log(`PASS: room settings, balanced 1v1/5v5, rejected balanced 2v1, allowed unbalanced 2v1, marathon, countdown, scoring, rematch, unanswered penalty, and result matrix. Answer batch max ${Math.max(...timings).toFixed(1)} ms.`)

@@ -52,6 +52,7 @@ const socketServer = createServer()
 const io = new Server(socketServer, {
   cors: { origin: true, methods: ['GET', 'POST'] },
   transports: ['websocket'],
+  perMessageDeflate: { threshold: 128 },
 })
 const rooms = new Map()
 const code = () => Math.random().toString(36).slice(2, 7).toUpperCase()
@@ -63,14 +64,24 @@ function sample(pool, n) {
   return copy.slice(0,n)
 }
 const pick = (room,n) => sample(dictionaries[room.config.dictionary].words,n)
-function publicRoom(room) { return { code: room.code, host: room.host, config: room.config, teamNames: room.teamNames, status: room.status, index: room.index, deadline: room.deadline, startsAt: room.startsAt, marathonWinnerId: room.marathonWinnerId, players: [...room.players.values()], question: null, results: room.status === 'finished' ? room.results : [], finished: room.status === 'finished' } }
-function emit(room) { io.to(room.code).emit('room:update', publicRoom(room)) }
+const compactAnswer = answer => ({i:answer.playerId,c:answer.correct?1:0,p:answer.points,h:answer.choice,u:answer.unanswered?1:0})
+const compactResult = result => ({w:result.word,m:result.meaning,o:result.pos,a:result.answers.map(compactAnswer)})
+function publicRoom(room) {
+  const config=room.config,data={c:room.code,h:room.host,g:{m:config.mode,z:config.size,r:config.rounds,s:config.seconds,u:config.unbalanced?1:0,d:config.dictionary,t:config.target},n:[room.teamNames[1],room.teamNames[2]],s:room.status,i:room.index,p:[...room.players.values()].map(player=>({i:player.id,n:player.name,t:player.team,s:player.score,r:player.ready?1:0,c:player.connected?1:0}))}
+  if(room.deadline!=null)data.d=room.deadline
+  if(room.startsAt!=null)data.a=room.startsAt
+  if(room.marathonWinnerId)data.w=room.marathonWinnerId
+  if(room.status==='finished')data.r=room.results.map(compactResult)
+  return data
+}
+function emit(room) { io.to(room.code).compress(true).emit('r', publicRoom(room)) }
+function emitScore(room,player) { io.to(room.code).emit('s',[room.index,player.id,player.score]) }
 function destroyRoom(room, message, reason='unknown') {
   if(rooms.get(room.code)!==room)return
   clearTimeout(room.timer);clearTimeout(room.startTimer);clearTimeout(room.prefetchTimer)
   rooms.delete(room.code)
   logEvent('room_destroyed',{roomCode:room.code,roomType:roomType(room),ip:room.creatorIp,reason})
-  if(message){io.to(room.code).emit('room:closed',{message});io.in(room.code).socketsLeave(room.code)}
+  if(message){io.to(room.code).compress(true).emit('x',message);io.in(room.code).socketsLeave(room.code)}
 }
 function buildQuestions(room,n) {
   const options=dictionaries[room.config.dictionary].options
@@ -80,9 +91,9 @@ function buildQuestions(room,n) {
     return {...word,options:choices,answer:choices.indexOf(right)}
   })
 }
-const publicQuestion = question => ({word:question.word,phonetic:question.phonetic,options:question.options})
+const publicQuestion = question => [question.word,question.phonetic,question.options.map(option=>[option.meaning,option.pos])]
 function sendPrefetch(room,start,questions) {
-  io.to(room.code).emit('q',[start,questions.map(publicQuestion)])
+  io.to(room.code).compress(true).emit('q',[start,questions.map(publicQuestion)])
 }
 function appendMarathonBatch(room) {
   if(room.status!=='playing')return
@@ -152,7 +163,7 @@ io.on('connection', socket => {
     room.status='lobby';room.index=0;room.results=[];room.questions=[];room.answered=new Map();room.question=null;room.deadline=null;room.startsAt=null;room.marathonWinnerId=null;room.unansweredRounds=0;room.timer=null;room.prefetchTimer=null;room.endLogged=false
     emit(room);done?.({ok:true})
   })
-  socket.on('answer', ({ answer, index }, done) => { const room=[...rooms.values()].find(r=>r.players.has(socket.id));if(!room||room.status!=='playing'||index!==room.index||Date.now()>room.deadline||!Number.isInteger(answer)||answer<0||answer>3)return done?.({ok:false});if(room.answered.has(socket.id))return done?.(room.answered.get(socket.id));const p=room.players.get(socket.id),correct=answer===room.question.answer;const percent=Math.max(0,Math.min(100,Math.round((room.deadline-Date.now())/(room.config.seconds*10))));const points=correct?percent:-percent;p.score+=points;const result={ok:true,correct,answer:room.question.answer,points,choice:answer};room.answered.set(socket.id,result);if(room.config.mode==='marathon'&&p.score>MARATHON_TARGET&&!room.marathonWinnerId){room.marathonWinnerId=p.id;clearTimeout(room.timer);finishQuestion(room,index)}else emit(room);done?.(result) })
+  socket.on('answer', ({ answer, index }, done) => { const room=[...rooms.values()].find(r=>r.players.has(socket.id));if(!room||room.status!=='playing'||index!==room.index||Date.now()>room.deadline||!Number.isInteger(answer)||answer<0||answer>3)return done?.([0]);if(room.answered.has(socket.id)){const result=room.answered.get(socket.id);return done?.([1,result.correct?1:0,result.answer,result.points,result.choice])}const p=room.players.get(socket.id),correct=answer===room.question.answer;const percent=Math.max(0,Math.min(100,Math.round((room.deadline-Date.now())/(room.config.seconds*10))));const points=correct?percent:-percent;p.score+=points;const result={ok:true,correct,answer:room.question.answer,points,choice:answer};room.answered.set(socket.id,result);if(room.config.mode==='marathon'&&p.score>MARATHON_TARGET&&!room.marathonWinnerId){room.marathonWinnerId=p.id;clearTimeout(room.timer);finishQuestion(room,index)}else emitScore(room,p);done?.([1,correct?1:0,room.question.answer,points,answer]) })
   socket.on('disconnect', () => { for(const room of rooms.values())if(room.players.has(socket.id)){const player=room.players.get(socket.id),retain=room.status==='playing'||room.status==='finished';if(retain)player.connected=false;else room.players.delete(socket.id);if(room.host===socket.id){const next=[...room.players.values()].find(p=>p.connected);if(next){room.host=next.id;next.ready=true}}if(![...room.players.values()].some(p=>p.connected))destroyRoom(room,null,'all_players_left');else emit(room)} })
 })
 webServer.listen(webPort, '0.0.0.0', () => console.log(`Word PK web: http://0.0.0.0:${webPort}`))
