@@ -1,0 +1,6 @@
+<script setup>
+defineProps({title:String,players:Array,size:Number,red:Boolean,team:Number,hostId:String,canRename:Boolean,canSwitch:{type:Boolean,default:true}})
+defineEmits(['switchTeam', 'renameTeam'])
+</script>
+<template><div class="team" :class="{red}"><h2>{{title}} <button v-if="canRename" class="renameTeam" type="button" title="修改队名" @click="$emit('renameTeam',team)">✎</button> <small>{{players.length}}/{{size}}</small></h2><div v-for="n in size" :key="players[n-1]?.id || n" class="player" :class="{empty:!players[n-1],switchable:!players[n-1]&&canSwitch}" :role="!players[n-1]&&canSwitch?'button':undefined" :tabindex="!players[n-1]&&canSwitch?0:undefined" @click="!players[n-1]&&canSwitch && $emit('switchTeam',team)" @keydown.enter="!players[n-1]&&canSwitch && $emit('switchTeam',team)" @keydown.space.prevent="!players[n-1]&&canSwitch && $emit('switchTeam',team)"><span>{{players[n-1]?.name?.[0] || '+'}}</span>{{players[n-1]?.name || (canSwitch?'点击切换到此队':'等待选手')}}<i v-if="players[n-1]?.id===hostId" class="hostState">房主</i><i v-else-if="players[n-1]?.ready" class="readyState ready" title="已准备">✓</i><i v-else-if="players[n-1]" class="readyState pending" title="未准备"></i></div></div></template>
+
