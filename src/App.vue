@@ -4,7 +4,7 @@ import Team from './Team.vue'
 import { io } from 'socket.io-client'
 
 export default {
-  data() { return { socket: null, phase: 'home', room: null, message: '', noticeModal: '', result: null, remaining: 0, now: Date.now(), timerId: null, clockOffset: 0, clockSamples: [], questionCache: [], marathonJoinPreview: null, name: localStorage.name || '', server: `${location.protocol}//${location.hostname}:3001`, form: { mode: 'standard' }, join: { code: '', team: 1 }, copied: false } },
+  data() { const defaultServer=`${location.protocol}//${location.hostname}:3001`;return { socket: null, phase: 'home', room: null, message: '', noticeModal: '', settingsModal: false, serverDraft: '', loadWarning: false, pendingAction: null, teamRenameModal: null, teamNameDraft: '', serverLoad: [0,0,0], result: null, remaining: 0, now: Date.now(), timerId: null, clockOffset: 0, clockSamples: [], questionCache: [], marathonJoinPreview: null, name: localStorage.name || '', server: localStorage.wordPkServer || defaultServer, form: { mode: 'standard' }, join: { code: '', team: 1 }, copied: false } },
   computed: {
     me() { return this.room?.players.find(p => p.id === this.socket?.id) },
     isHost() { return this.room?.host === this.socket?.id },
@@ -26,9 +26,11 @@ export default {
     countdownNumber() { return Math.max(1,Math.ceil(((this.room?.startsAt||this.now)-this.now)/1000)) },
     myRank() { return this.ranking.findIndex(p=>p.id===this.me?.id)+1 },
     myCorrect() { return (this.room?.results||[]).filter(r=>this.answerRecord(r,this.me?.id)?.correct).length },
-    noticeTitle() { return this.noticeModal.includes('销毁')||this.noticeModal.includes('关闭')?'房间已关闭':'无法加入房间' }
+    noticeTitle() { return this.noticeModal.includes('销毁')||this.noticeModal.includes('关闭')?'房间已关闭':'无法加入房间' },
+    loadLevel() { return this.serverLoad[0]>=75?'负载较高':this.serverLoad[0]>=45?'负载一般':'运行流畅' },
+    loadClass() { return this.serverLoad[0]>=75?'high':this.serverLoad[0]>=45?'medium':'low' }
   },
-  mounted() { this.timerId=setInterval(()=>{this.now=Date.now()+this.clockOffset;this.remaining=this.room?.deadline?Math.max(0,this.room.deadline-this.now):0},100) },
+  mounted() { this.timerId=setInterval(()=>{this.now=Date.now()+this.clockOffset;this.remaining=this.room?.deadline?Math.max(0,this.room.deadline-this.now):0},100);this.connect() },
   beforeUnmount() { clearInterval(this.timerId);this.socket?.disconnect() },
   methods: {
     decodeRoom(data) {
@@ -44,6 +46,7 @@ export default {
         this.clockSamples=[]
         this.syncClock()
       })
+      this.socket.on('l', load => { if(Array.isArray(load))this.serverLoad=load })
       this.socket.on('q', ([start,questions]) => {
         for(let i=0;i<questions.length;i++){const question=questions[i];this.questionCache[start+i]={word:question[0],phonetic:question[1],options:question[2].map(option=>({meaning:option[0],pos:option[1]}))}}
         if(this.room?.status==='playing'&&this.questionCache[this.room.index])this.room={...this.room,question:this.questionCache[this.room.index]}
@@ -83,8 +86,14 @@ export default {
         this.now=Date.now()+this.clockOffset
       })
     },
-    create() { if(!this.name.trim()) return this.message='先取一个响亮的昵称'; localStorage.name=this.name; this.connect(); this.socket.emit('room:create',{name:this.name,config:this.form}, r=>{ if(r.ok){this.room=this.decodeRoom(r.room);this.phase='lobby'} }) },
-    enter() { if(!this.name.trim()) return this.message='先取一个响亮的昵称';if(!this.join.code.trim())return this.message='请输入房间码';localStorage.name=this.name;this.connect();this.socket.emit('room:preview',{code:this.join.code},r=>{if(!r?.ok)return this.showNotice(r?.message||'无法读取房间');if(r.preview.mode==='marathon'){this.marathonJoinPreview=r.preview;this.message=''}else this.joinRoom()}) },
+    create() { if(!this.name.trim())return this.message='先取一个响亮的昵称';this.guardLoad('create') },
+    createNow() { localStorage.name=this.name;this.connect();this.socket.emit('room:create',{name:this.name,config:this.form},r=>{if(r.ok){this.room=this.decodeRoom(r.room);this.phase='lobby'}}) },
+    enter() { if(!this.name.trim())return this.message='先取一个响亮的昵称';if(!this.join.code.trim())return this.message='请输入房间码';this.guardLoad('join') },
+    enterNow() { localStorage.name=this.name;this.connect();this.socket.emit('room:preview',{code:this.join.code},r=>{if(!r?.ok)return this.showNotice(r?.message||'无法读取房间');if(r.preview.mode==='marathon'){this.marathonJoinPreview=r.preview;this.message=''}else this.joinRoom()}) },
+    guardLoad(action) { if(this.serverLoad[0]>=75){this.pendingAction=action;this.loadWarning=true}else action==='create'?this.createNow():this.enterNow() },
+    continueWithLoad() { const action=this.pendingAction;this.loadWarning=false;this.pendingAction=null;if(action==='create')this.createNow();else if(action==='join')this.enterNow() },
+    openSettings() { this.serverDraft=this.server;this.settingsModal=true },
+    saveSettings() { const value=this.serverDraft.trim();if(!value)return;this.server=value;localStorage.wordPkServer=value;this.settingsModal=false;this.socket?.disconnect();this.socket=null;this.room=null;this.result=null;this.questionCache=[];this.phase='home';this.serverLoad=[0,0,0];this.connect() },
     joinRoom() { this.marathonJoinPreview=null;this.socket.emit('room:join',{code:this.join.code,name:this.name,team:this.join.team},r=>{if(r.ok){this.room=this.decodeRoom(r.room);this.phase='lobby';this.message=''}else this.showNotice(r.message||'无法加入房间')}) },
     cancelMarathonJoin() { this.marathonJoinPreview=null },
     showNotice(message) { this.message='';this.noticeModal=message },
@@ -93,7 +102,8 @@ export default {
     switchTeam(team) { if(this.me?.team===team)return;this.socket.emit('room:switch-team',{team},r=>{if(!r?.ok)this.message=r?.message||'切换队伍失败';else this.message=''}) },
     toggleReady() { this.socket.emit('room:ready',{ready:!this.me?.ready},r=>{if(!r?.ok)this.message=r?.message||'准备状态更新失败';else this.message=''}) },
     updateSettings(patch) { if(!this.isHost)return;this.socket.emit('room:update-settings',patch,r=>{if(!r?.ok)this.message=r?.message||'房间设置更新失败';else this.message=''}) },
-    renameTeam(team) { if(this.me?.team!==team)return;const current=team===1?this.teamNameA:this.teamNameB;const name=window.prompt('输入新队名（最多 10 个字符）',current);if(name===null)return;this.socket.emit('room:rename-team',{team,name},r=>{if(!r?.ok)this.message=r?.message||'修改队名失败';else this.message=''}) },
+    renameTeam(team) { if(this.me?.team!==team)return;this.teamRenameModal=team;this.teamNameDraft=team===1?this.teamNameA:this.teamNameB },
+    submitTeamName() { const team=this.teamRenameModal,name=this.teamNameDraft;this.socket.emit('room:rename-team',{team,name},r=>{if(!r?.ok)this.message=r?.message||'修改队名失败';else{this.message='';this.teamRenameModal=null}}) },
     rematch() { this.socket.emit('game:rematch',{},r=>{ if(!r?.ok) this.message=r?.message || '暂时无法再来一局' }) },
     answer(i) {
       if(this.result) return
@@ -127,7 +137,16 @@ export default {
 </script>
 <template>
 
-  <main><header><div class="brand"><span>W</span> WORD <b>PK</b></div><div class="online">● 局域网实时对战</div></header>
+  <main><header><div class="headerBrand"><div class="brand"><span>W</span> WORD <b>PK</b></div><div class="serverLoad" :class="loadClass"><i></i><span>服务器负载 {{serverLoad[0]}}% · {{loadLevel}}</span></div></div><button class="settingsButton" @click="openSettings">⚙ 设置</button></header>
+  <div v-if="settingsModal" class="modalMask" @click.self="settingsModal=false">
+    <div class="marathonModal settingsModal" role="dialog" aria-modal="true" aria-labelledby="settings-title"><span class="modalFlag">⚙</span><h2 id="settings-title">对战服务器设置</h2><p>设置 Socket.IO 对战服务地址。修改后会自动重新连接。</p><label>服务器地址<input v-model="serverDraft" placeholder="例如 http://192.168.1.10:3001" @keyup.enter="saveSettings"/></label><div class="modalActions"><button class="quiet" @click="settingsModal=false">取消</button><button @click="saveSettings">保存并连接</button></div></div>
+  </div>
+  <div v-if="loadWarning" class="modalMask" @click.self="loadWarning=false">
+    <div class="marathonModal loadModal" role="alertdialog" aria-modal="true" aria-labelledby="load-title"><span class="modalFlag">⚠</span><h2 id="load-title">服务器负载较高</h2><div class="durationCallout"><small>当前服务器负载</small><strong>{{serverLoad[0]}}%</strong><span>{{serverLoad[1]}} 个房间 · {{serverLoad[2]}} 名玩家</span></div><p>当前负载可能影响游戏体验，建议稍后再试。</p><div class="modalActions"><button class="quiet" @click="loadWarning=false">稍后再试</button><button @click="continueWithLoad">仍然继续</button></div></div>
+  </div>
+  <div v-if="teamRenameModal" class="modalMask" @click.self="teamRenameModal=null">
+    <div class="marathonModal settingsModal" role="dialog" aria-modal="true" aria-labelledby="rename-title"><span class="modalFlag">✎</span><h2 id="rename-title">修改队伍名称</h2><p>输入新的队名，最多 10 个字符。</p><input v-model="teamNameDraft" maxlength="10" autofocus @keyup.enter="submitTeamName"/><div class="modalActions"><button class="quiet" @click="teamRenameModal=null">取消</button><button @click="submitTeamName">确认修改</button></div></div>
+  </div>
   <div v-if="noticeModal" class="modalMask" @click.self="closeNotice">
     <div class="marathonModal" role="alertdialog" aria-modal="true" aria-labelledby="notice-title">
       <span class="modalFlag">!</span><h2 id="notice-title">{{noticeTitle}}</h2>
@@ -146,7 +165,7 @@ export default {
   </div>
   <section v-if="phase==='home'" class="hero">
     <div class="eyebrow">VOCABULARY BATTLE</div><h1>背单词，<em>组队赢。</em></h1>
-    <div class="server"><label>对战服务</label><input v-model="server" placeholder="例如 http://192.168.1.10:3001"/><small>自动使用当前主机的 3001 端口，通常无需修改。</small></div>
+    <div class="serverPlaceholder" aria-hidden="true"></div>
     <div class="panels">
       <article><i>✦</i><h2>创建房间</h2><p>我来当房主，选择赛制并设置对局。</p><input v-model="name" placeholder="你的昵称" maxlength="12"/>
         <select v-model="form.mode" class="modeSelect"><option value="standard">组队 PK</option><option value="marathon">马拉松 · 先到 4219+</option></select>

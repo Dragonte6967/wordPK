@@ -14,9 +14,12 @@ const waitState=(socket,predicate)=>new Promise((resolve,reject)=>{
 })
 try {
   await Promise.race([once(server.stdout,'data'),once(server,'exit').then(()=>{throw new Error('server exited')})])
+  let initialLoad
   for(let i=0;i<10;i++){
-    const s=io('http://127.0.0.1:3100',{transports:['websocket'],reconnection:false});clients.push(s);await once(s,'connect')
+    const s=io('http://127.0.0.1:3100',{transports:['websocket'],reconnection:false}),loadPromise=i===0?once(s,'l'):null;clients.push(s);await once(s,'connect');if(loadPromise)[initialLoad]=await loadPromise
   }
+  assert.equal(initialLoad.length,3)
+  assert.ok(initialLoad.every(Number.isFinite))
   const clock=await clients[0].timeout(3000).emitWithAck('t')
   assert.equal(clock.length,2)
   assert.ok(clock[1]>=clock[0])

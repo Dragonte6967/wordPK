@@ -55,6 +55,17 @@ const io = new Server(socketServer, {
   perMessageDeflate: { threshold: 128 },
 })
 const rooms = new Map()
+let loadState=[0,0,0]
+let lastCpu=process.cpuUsage(),lastCpuAt=process.hrtime.bigint(),lastLoadTick=Date.now()
+function updateLoad() {
+  const now=process.hrtime.bigint(),elapsedUs=Number(now-lastCpuAt)/1000,cpu=process.cpuUsage(lastCpu)
+  const cpuPercent=Math.min(100,Math.round((cpu.user+cpu.system)/Math.max(1,elapsedUs)*100))
+  const tick=Date.now(),lag=Math.max(0,tick-lastLoadTick-5000),players=[...rooms.values()].reduce((total,room)=>total+room.players.size,0)
+  const score=Math.min(100,Math.max(cpuPercent,Math.round(lag/2),Math.round(io.engine.clientsCount/2),rooms.size*2))
+  loadState=[score,rooms.size,players];lastCpu=process.cpuUsage();lastCpuAt=now;lastLoadTick=tick
+  io.compress(true).emit('l',loadState)
+}
+setInterval(updateLoad,5000).unref()
 const code = () => Math.random().toString(36).slice(2, 7).toUpperCase()
 function sample(pool, n) {
   const copy = [...pool]
@@ -135,6 +146,7 @@ function beginGame(room){
   makeQuestion(room);emit(room)
 }
 io.on('connection', socket => {
+  socket.emit('l',loadState)
   socket.on('t', done => {
     const serverReceived=Date.now()
     done?.([serverReceived,Date.now()])
