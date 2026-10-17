@@ -4,6 +4,7 @@ import { Server } from 'socket.io'
 import { appendFileSync, mkdirSync, readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { createAdminAuth } from './admin.js'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 function loadWords(filename) {
@@ -53,6 +54,15 @@ function logMatchEnd(room) {
 }
 const app = express()
 app.disable('etag')
+app.set('trust proxy','loopback')
+const adminAuth=createAdminAuth(resolve(process.env.ADMIN_AUTH_FILE || join(root,'logs','admin-auth.json')))
+app.use('/api/admin',express.json({limit:'2kb'}))
+app.use('/api/admin',(_,res,next)=>{res.set('Cache-Control','no-store');next()})
+app.get('/api/admin/status',adminAuth.status)
+app.post('/api/admin/setup',adminAuth.setup)
+app.post('/api/admin/login',adminAuth.login)
+app.post('/api/admin/logout',adminAuth.logout)
+app.get('/api/admin/dashboard',adminAuth.require,(_,res)=>res.json(adminDashboard()))
 app.use((req,res,next)=>{
   if(req.path==='/'||req.path.endsWith('.html'))res.set('Cache-Control','no-store, no-cache, must-revalidate, proxy-revalidate')
   next()
@@ -71,6 +81,10 @@ const io = new Server(socketServer, {
 })
 const rooms = new Map()
 let loadState=[0,0,0]
+const loadHistory=[]
+function adminDashboard(){
+  return {now:Date.now(),load:{percent:loadState[0],rooms:rooms.size,players:[...rooms.values()].reduce((sum,room)=>sum+room.players.size,0)},history:loadHistory,rooms:[...rooms.values()].map(room=>({code:room.code,mode:roomType(room),status:room.status,createdAt:room.createdAt||null,dictionary:room.config.dictionary,seconds:room.config.seconds,rounds:room.config.rounds,index:room.index,teamNames:room.teamNames,teamScores:room.config.mode==='marathon'?null:{1:teamScore(room,1),2:teamScore(room,2)},players:[...room.players.values()].map(player=>({name:player.name,team:player.team,score:player.score,connected:player.connected}))}))}
+}
 let lastCpu=process.cpuUsage(),lastCpuAt=process.hrtime.bigint(),lastLoadTick=Date.now()
 function updateLoad() {
   const now=process.hrtime.bigint(),elapsedUs=Number(now-lastCpuAt)/1000,cpu=process.cpuUsage(lastCpu)
@@ -78,6 +92,7 @@ function updateLoad() {
   const tick=Date.now(),lag=Math.max(0,tick-lastLoadTick-5000),players=[...rooms.values()].reduce((total,room)=>total+room.players.size,0)
   const score=Math.min(100,Math.max(cpuPercent,Math.round(lag/2),Math.round(io.engine.clientsCount/2),rooms.size*2))
   loadState=[score,rooms.size,players];lastCpu=process.cpuUsage();lastCpuAt=now;lastLoadTick=tick
+  loadHistory.push({time:tick,load:score,rooms:rooms.size});if(loadHistory.length>360)loadHistory.shift()
   io.compress(true).emit('l',loadState)
 }
 setInterval(updateLoad,5000).unref()
@@ -169,7 +184,7 @@ io.on('connection', socket => {
   socket.on('room:create', ({ name, config }, done) => {
     let id=code();while(rooms.has(id))id=code()
     const mode=config.mode==='marathon'?'marathon':'standard'
-    const room={code:id,host:socket.id,creatorIp:cleanIp(socket.handshake.address),config:{mode,size:mode==='marathon'?10:5,rounds:mode==='marathon'?null:20,seconds:5,unbalanced:false,dictionary:'cet46',target:mode==='marathon'?MARATHON_TARGET:null},teamNames:{1:'赤焰队',2:'深蓝队'},players:new Map(),status:'lobby',index:0,results:[]}
+    const room={code:id,host:socket.id,creatorIp:cleanIp(socket.handshake.address),createdAt:Date.now(),config:{mode,size:mode==='marathon'?10:5,rounds:mode==='marathon'?null:20,seconds:5,unbalanced:false,dictionary:'cet46',target:mode==='marathon'?MARATHON_TARGET:null},teamNames:{1:'赤焰队',2:'深蓝队'},players:new Map(),status:'lobby',index:0,results:[]}
     room.players.set(socket.id,{id:socket.id,name,team:mode==='marathon'?null:1,score:0,ready:true,connected:true});rooms.set(id,room);socket.join(id);logEvent('room_created',{roomCode:id,roomType:roomType(room),ip:room.creatorIp});done({ok:true,room:publicRoom(room)})
   })
   socket.on('room:preview', ({ code:id }, done) => { const room=rooms.get(id?.toUpperCase());if(!room)return done?.({ok:false,message:'房间码不存在'});if(room.status!=='lobby')return done?.({ok:false,message:'对战已经开始'});const capacity=room.config.mode==='marathon'?10:room.config.size*2;if(room.players.size>=capacity)return done?.({ok:false,message:'房间已满'});done?.({ok:true,preview:{code:room.code,mode:room.config.mode,seconds:room.config.seconds,target:room.config.target,minMinutes:room.config.mode==='marathon'?marathonMinutes(room.config.seconds):null,players:room.players.size,capacity}}) })
