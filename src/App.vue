@@ -2,9 +2,10 @@
 import { markRaw } from 'vue'
 import Team from './Team.vue'
 import { io } from 'socket.io-client'
+import { serverCandidates, serverHost } from './serverAddress.js'
 
 export default {
-  data() { const defaultServer=`${location.protocol}//${location.hostname}:3001`;return { socket: null, phase: 'home', room: null, message: '', noticeModal: '', settingsModal: false, serverDraft: '', loadWarning: false, pendingAction: null, teamRenameModal: null, teamNameDraft: '', serverLoad: [0,0,0], result: null, remaining: 0, now: Date.now(), timerId: null, clockOffset: 0, clockSamples: [], questionCache: [], marathonJoinPreview: null, name: localStorage.name || '', server: localStorage.wordPkServer || defaultServer, form: { mode: 'standard' }, join: { code: '', team: 1 }, copied: false } },
+  data() { const host=localStorage.wordPkServerHost||serverHost(localStorage.wordPkServer,location.hostname),defaultServer=serverCandidates(host,location.protocol)[0];return { socket: null, phase: 'home', room: null, message: '', noticeModal: '', settingsModal: false, serverDraft: '', detectingServer: false, settingsError: '', leaveConfirm: false, loadWarning: false, pendingAction: null, teamRenameModal: null, teamNameDraft: '', serverLoad: [0,0,0], result: null, remaining: 0, now: Date.now(), timerId: null, clockOffset: 0, clockSamples: [], questionCache: [], marathonJoinPreview: null, name: localStorage.name || '', server: defaultServer, form: { mode: 'standard' }, join: { code: '', team: 1 }, copied: false } },
   computed: {
     me() { return this.room?.players.find(p => p.id === this.socket?.id) },
     isHost() { return this.room?.host === this.socket?.id },
@@ -43,6 +44,7 @@ export default {
       this.socket?.disconnect()
       this.socket=markRaw(io(this.server, { transports: ['websocket'], timeout: 5000, reconnectionAttempts: 3 }))
       this.socket.on('connect', () => {
+        this.message=''
         this.clockSamples=[]
         this.syncClock()
       })
@@ -66,9 +68,15 @@ export default {
         this.phase=room.status === 'lobby' ? 'lobby' : room.status === 'countdown' ? 'countdown' : room.status === 'playing' ? 'game' : 'result'
         if(questionChanged)this.syncClock()
       })
-      this.socket.on('connect_error', () => this.message='无法连接服务器，请检查局域网地址')
+      this.socket.io.once('reconnect_failed', () => this.tryFallbackServer())
       this.socket.on('x', message => { this.room=null;this.result=null;this.phase='home';this.showNotice(message||'房间已自动销毁') })
       return true
+    },
+    tryFallbackServer() {
+      const host=localStorage.wordPkServerHost||serverHost(this.server,location.hostname),candidates=serverCandidates(host,location.protocol)
+      const current=candidates.indexOf(this.server),next=current<0?candidates[0]:candidates[current+1]
+      if(next){this.socket?.disconnect();this.socket=null;this.server=next;localStorage.wordPkServer=next;this.connect();return}
+      this.message='无法连接服务器，请检查服务器地址或稍后重试'
     },
     syncClock() {
       if(!this.socket?.connected)return
@@ -92,8 +100,29 @@ export default {
     enterNow() { localStorage.name=this.name;this.connect();this.socket.emit('room:preview',{code:this.join.code},r=>{if(!r?.ok)return this.showNotice(r?.message||'无法读取房间');if(r.preview.mode==='marathon'){this.marathonJoinPreview=r.preview;this.message=''}else this.joinRoom()}) },
     guardLoad(action) { if(this.serverLoad[0]>=75){this.pendingAction=action;this.loadWarning=true}else action==='create'?this.createNow():this.enterNow() },
     continueWithLoad() { const action=this.pendingAction;this.loadWarning=false;this.pendingAction=null;if(action==='create')this.createNow();else if(action==='join')this.enterNow() },
-    openSettings() { this.serverDraft=this.server;this.settingsModal=true },
-    saveSettings() { const value=this.serverDraft.trim();if(!value)return;this.server=value;localStorage.wordPkServer=value;this.settingsModal=false;this.socket?.disconnect();this.socket=null;this.room=null;this.result=null;this.questionCache=[];this.phase='home';this.serverLoad=[0,0,0];this.connect() },
+    openSettings() { this.serverDraft=localStorage.wordPkServerHost||serverHost(this.server,location.hostname);this.settingsError='';this.settingsModal=true },
+    testServer(url) {
+      return new Promise((resolve,reject)=>{
+        const probe=io(url,{transports:['websocket'],timeout:2500,reconnection:false,forceNew:true})
+        const timer=setTimeout(()=>finish(false),3000)
+        const finish=ok=>{clearTimeout(timer);probe.removeAllListeners();probe.disconnect();ok?resolve(url):reject(new Error('unavailable'))}
+        probe.once('connect',()=>finish(true));probe.once('connect_error',()=>finish(false))
+      })
+    },
+    async saveSettings() {
+      const value=this.serverDraft.trim()
+      if(!value||this.detectingServer)return
+      const candidates=serverCandidates(value,location.protocol)
+      if(!candidates.length){this.settingsError='服务器地址格式不正确，请输入 IP 或域名';return}
+      this.detectingServer=true;this.settingsError=''
+      try {
+        let server=''
+        for(const candidate of candidates){try{server=await this.testServer(candidate);break}catch{}}
+        if(!server)throw new Error('unavailable')
+        this.server=server;localStorage.wordPkServer=server;localStorage.wordPkServerHost=serverHost(value);this.settingsModal=false;this.socket?.disconnect();this.socket=null;this.room=null;this.result=null;this.questionCache=[];this.phase='home';this.serverLoad=[0,0,0];this.connect()
+      } catch { this.settingsError='未在 443 或 3001 端口检测到可用的对战服务' }
+      finally { this.detectingServer=false }
+    },
     joinRoom() { this.marathonJoinPreview=null;this.socket.emit('room:join',{code:this.join.code,name:this.name,team:this.join.team},r=>{if(r.ok){this.room=this.decodeRoom(r.room);this.phase='lobby';this.message=''}else this.showNotice(r.message||'无法加入房间')}) },
     cancelMarathonJoin() { this.marathonJoinPreview=null },
     showNotice(message) { this.message='';this.noticeModal=message },
@@ -115,7 +144,7 @@ export default {
     },
     answerRecord(round,playerId) { return round.answers.find(a=>a.playerId===playerId) },
     racePosition(player) { return Math.max(0,Math.min(100,(player.score/(this.room?.config.target||4219))*100)) },
-    marathonMinutes(seconds) { return ({3:9,4:7,5:7,6:7,7:7,8:8,9:8,10:9})[Number(seconds)] || 7 },
+    marathonMinutes(seconds) { return ({3:162,4:35,5:18,6:14,7:12,8:12,9:12,10:12})[Number(seconds)] || 18 },
     async copy() {
       const value=this.room?.code
       if(!value)return
@@ -130,6 +159,8 @@ export default {
       }
       if(ok){this.copied=true;this.message='';setTimeout(()=>this.copied=false,1200)}else this.message=`复制失败，请长按房间码 ${value} 手动复制`
     },
+    requestLeave() { if(this.phase!=='home'&&this.room)this.leaveConfirm=true },
+    confirmLeave() { this.leaveConfirm=false;this.leave() },
     leave() { this.socket?.disconnect();this.socket=null;this.room=null;this.questionCache=[];this.phase='home';this.result=null;this.message='' }
   },
   components: { Team }
@@ -137,32 +168,35 @@ export default {
 </script>
 <template>
 
-  <main><header><div class="headerBrand"><div class="brand"><span>W</span> WORD <b>PK</b></div><div class="serverLoad" :class="loadClass"><i></i><span>服务器负载 {{serverLoad[0]}}% · {{loadLevel}}</span></div></div><button class="settingsButton" @click="openSettings">⚙ 设置</button></header>
-  <div v-if="settingsModal" class="modalMask" @click.self="settingsModal=false">
-    <div class="marathonModal settingsModal" role="dialog" aria-modal="true" aria-labelledby="settings-title"><span class="modalFlag">⚙</span><h2 id="settings-title">对战服务器设置</h2><p>设置 Socket.IO 对战服务地址。修改后会自动重新连接。</p><label>服务器地址<input v-model="serverDraft" placeholder="例如 http://192.168.1.10:3001" @keyup.enter="saveSettings"/></label><div class="modalActions"><button class="quiet" @click="settingsModal=false">取消</button><button @click="saveSettings">保存并连接</button></div></div>
-  </div>
-  <div v-if="loadWarning" class="modalMask" @click.self="loadWarning=false">
+  <main><header><div class="headerBrand"><button class="brand" :class="{canLeave:phase!=='home'&&room}" :aria-label="phase!=='home'&&room?'退出当前房间':'Word PK'" @click="requestLeave"><span>W</span> WORD <b>PK</b></button><div class="serverLoad" :class="loadClass"><i></i><span>服务器负载 {{serverLoad[0]}}% · {{loadLevel}}</span></div></div><button class="settingsButton" @click="openSettings">⚙ 设置</button></header>
+  <Transition name="overlay"><div v-if="leaveConfirm" class="modalMask" @click.self="leaveConfirm=false">
+    <div class="marathonModal" role="alertdialog" aria-modal="true" aria-labelledby="leave-title"><span class="modalFlag">↩</span><h2 id="leave-title">退出当前房间？</h2><p>退出后将返回首页，当前对局进度不会保留在此设备上。</p><div class="modalActions"><button class="quiet" @click="leaveConfirm=false">继续留在房间</button><button @click="confirmLeave">确认退出</button></div></div>
+  </div></Transition>
+  <Transition name="overlay"><div v-if="settingsModal" class="modalMask" @click.self="settingsModal=false">
+    <div class="marathonModal settingsModal" role="dialog" aria-modal="true" aria-labelledby="settings-title"><span class="modalFlag">⚙</span><h2 id="settings-title">对战服务器设置</h2><p>只需填写服务器 IP 或域名，系统会自动检测可用端口。</p><label>服务器地址<input v-model="serverDraft" placeholder="例如 192.168.1.10" :disabled="detectingServer" @keyup.enter="saveSettings"/><small>自动检测 443 和 3001 端口</small></label><p v-if="settingsError" class="settingsError">{{settingsError}}</p><div class="modalActions"><button class="quiet" :disabled="detectingServer" @click="settingsModal=false">取消</button><button :disabled="detectingServer" @click="saveSettings">{{detectingServer?'正在检测…':'检测并连接'}}</button></div></div>
+  </div></Transition>
+  <Transition name="overlay"><div v-if="loadWarning" class="modalMask" @click.self="loadWarning=false">
     <div class="marathonModal loadModal" role="alertdialog" aria-modal="true" aria-labelledby="load-title"><span class="modalFlag">⚠</span><h2 id="load-title">服务器负载较高</h2><div class="durationCallout"><small>当前服务器负载</small><strong>{{serverLoad[0]}}%</strong><span>{{serverLoad[1]}} 个房间 · {{serverLoad[2]}} 名玩家</span></div><p>当前负载可能影响游戏体验，建议稍后再试。</p><div class="modalActions"><button class="quiet" @click="loadWarning=false">稍后再试</button><button @click="continueWithLoad">仍然继续</button></div></div>
-  </div>
-  <div v-if="teamRenameModal" class="modalMask" @click.self="teamRenameModal=null">
+  </div></Transition>
+  <Transition name="overlay"><div v-if="teamRenameModal" class="modalMask" @click.self="teamRenameModal=null">
     <div class="marathonModal settingsModal" role="dialog" aria-modal="true" aria-labelledby="rename-title"><span class="modalFlag">✎</span><h2 id="rename-title">修改队伍名称</h2><p>输入新的队名，最多 10 个字符。</p><input v-model="teamNameDraft" maxlength="10" autofocus @keyup.enter="submitTeamName"/><div class="modalActions"><button class="quiet" @click="teamRenameModal=null">取消</button><button @click="submitTeamName">确认修改</button></div></div>
-  </div>
-  <div v-if="noticeModal" class="modalMask" @click.self="closeNotice">
+  </div></Transition>
+  <Transition name="overlay"><div v-if="noticeModal" class="modalMask" @click.self="closeNotice">
     <div class="marathonModal" role="alertdialog" aria-modal="true" aria-labelledby="notice-title">
       <span class="modalFlag">!</span><h2 id="notice-title">{{noticeTitle}}</h2>
       <p>{{noticeModal}}</p>
       <div class="modalActions"><button @click="closeNotice">我知道了</button></div>
     </div>
-  </div>
-  <div v-if="marathonJoinPreview" class="modalMask" @click.self="cancelMarathonJoin">
+  </div></Transition>
+  <Transition name="overlay"><div v-if="marathonJoinPreview" class="modalMask" @click.self="cancelMarathonJoin">
     <div class="marathonModal" role="dialog" aria-modal="true" aria-labelledby="marathon-title">
       <span class="modalFlag">🏁</span><h2 id="marathon-title">这是一场耐力赛</h2>
-      <div class="durationCallout"><small>按当前房间设置</small><strong>至少 {{marathonJoinPreview.minMinutes}} 分钟</strong><span>才能完成一场比赛</span></div>
+      <div class="durationCallout"><small>按当前房间设置</small><strong>预计 {{marathonJoinPreview.minMinutes}} 分钟</strong><span>完成一场比赛</span></div>
       <p>马拉松不分队，率先超过 {{marathonJoinPreview.target}} 分获胜。请确认你有足够时间和耐力完成比赛。</p>
       <small>当前 {{marathonJoinPreview.players}} / {{marathonJoinPreview.capacity}} 人 · {{marathonJoinPreview.seconds}} 秒/题</small>
       <div class="modalActions"><button class="quiet" @click="cancelMarathonJoin">暂不参加</button><button @click="joinRoom">确认并加入</button></div>
     </div>
-  </div>
+  </div></Transition>
   <section v-if="phase==='home'" class="hero">
     <div class="eyebrow">VOCABULARY BATTLE</div><h1>背单词，<em>组队赢。</em></h1>
     <div class="serverPlaceholder" aria-hidden="true"></div>
@@ -170,14 +204,14 @@ export default {
       <article><i>✦</i><h2>创建房间</h2><p>我来当房主，选择赛制并设置对局。</p><input v-model="name" placeholder="你的昵称" maxlength="12"/>
         <select v-model="form.mode" class="modeSelect"><option value="standard">组队 PK</option><option value="marathon">马拉松 · 先到 4219+</option></select>
         <div v-if="form.mode==='standard'" class="creationNote"><b>默认最多 5v5</b><small>单词数量、答题速度和是否允许人数不平衡，将由房主进入房间后设置。</small></div>
-        <div v-else class="marathonNote"><b>🏁 马拉松耐力赛</b><strong>房间内会根据答题速度显示最短完赛时间</strong><small>按每题最快 2.3 秒（含扫视、选择与网络延时）估算；率先超过4219分获胜，需要一定的耐力</small></div>
+        <div v-else class="marathonNote"><b>🏁 马拉松耐力赛</b><strong>房间内会根据答题速度显示预计完赛时间</strong><small>按预计平均每题得分估算；率先超过4219分获胜，需要一定的耐力</small></div>
         <button @click="create">创建对战房间 →</button>
       </article>
       <article class="join"><i>⌁</i><h2>加入房间</h2><p>输入朋友分享的房间码；马拉松中阵营选择不影响入房。</p><input v-model="name" placeholder="你的昵称" maxlength="12"/><input v-model="join.code" placeholder="房间码" maxlength="5" class="codeInput"/><div class="teams"><button :class="{chosen:join.team===1}" @click="join.team=1">赤焰队</button><button :class="{chosen:join.team===2}" @click="join.team=2">深蓝队</button></div><button @click="enter">加入战场 →</button></article>
     </div><p v-if="message" class="message">{{message}}</p>
   </section>
   <section v-else-if="phase==='lobby'" class="room">
-    <div class="roomSettings" :class="{readonly:!isHost}"><div class="roomTop"><div><span class="eyebrow">ROOM CODE · 点击复制</span><h1><button class="codeCopy" :class="{copied}" :aria-label="copied?'房间码已复制':'复制房间码 '+room.code" :title="copied?'已复制':'点击复制房间码'" @click="copy">{{room.code}}</button></h1></div><button class="quiet" @click="leave">离开房间</button></div><div class="settingsTitle"><span class="eyebrow">ROOM SETTINGS</span><h3>{{isHost?'房间设置':'当前房间设置'}}</h3></div><label>词库<select :value="room.config.dictionary" :disabled="!isHost" @change="updateSettings({dictionary:$event.target.value})"><option value="cet46">四六级词库</option><option value="ky">考研词库</option><option value="cz">中考词库</option><option value="gz">高考词库</option></select></label><label v-if="!isMarathon">单词数量<select :value="room.config.rounds" :disabled="!isHost" @change="updateSettings({rounds:Number($event.target.value)})"><option :value="10">10 个</option><option :value="20">20 个</option><option :value="30">30 个</option><option :value="50">50 个</option></select></label><label>答题速度<select :value="room.config.seconds" :disabled="!isHost" @change="updateSettings({seconds:Number($event.target.value)})"><option v-for="s in 8" :key="s" :value="s+2">{{s+2}} 秒/题</option></select></label><label v-if="!isMarathon" class="roomToggle"><input type="checkbox" :checked="room.config.unbalanced" :disabled="!isHost" @change="updateSettings({unbalanced:$event.target.checked})"/><span><b>允许人数不平衡</b><small>{{room.config.unbalanced?'双方各有 1 人即可开战，团队按平均分':'双方人数相等即可开战，团队按总分'}}</small></span></label><div v-else class="roomDuration"><small>当前设置至少需要</small><strong>{{marathonMinutes(room.config.seconds)}} 分钟</strong><span>才能完赛，需要一定耐力</span></div><small v-if="isHost" class="settingsHint">修改设置会取消其他玩家的准备状态</small></div>
+    <div class="roomSettings" :class="{readonly:!isHost}"><div class="roomTop"><div><span class="eyebrow">ROOM CODE · 点击复制</span><h1><button class="codeCopy" :class="{copied}" :aria-label="copied?'房间码已复制':'复制房间码 '+room.code" :title="copied?'已复制':'点击复制房间码'" @click="copy">{{room.code}}</button></h1></div><button class="quiet" @click="requestLeave">离开房间</button></div><div class="settingsTitle"><span class="eyebrow">ROOM SETTINGS</span><h3>{{isHost?'房间设置':'当前房间设置'}}</h3></div><label>词库<select :value="room.config.dictionary" :disabled="!isHost" @change="updateSettings({dictionary:$event.target.value})"><option value="cet46">四六级词库</option><option value="ky">考研词库</option><option value="cz">中考词库</option><option value="gz">高考词库</option></select></label><label v-if="!isMarathon">单词数量<select :value="room.config.rounds" :disabled="!isHost" @change="updateSettings({rounds:Number($event.target.value)})"><option :value="10">10 个</option><option :value="20">20 个</option><option :value="30">30 个</option><option :value="50">50 个</option></select></label><label>答题速度<select :value="room.config.seconds" :disabled="!isHost" @change="updateSettings({seconds:Number($event.target.value)})"><option v-for="s in 8" :key="s" :value="s+2">{{s+2}} 秒/题</option></select></label><label v-if="!isMarathon" class="roomToggle"><input type="checkbox" :checked="room.config.unbalanced" :disabled="!isHost" @change="updateSettings({unbalanced:$event.target.checked})"/><span><b>允许人数不平衡</b><small>{{room.config.unbalanced?'双方各有 1 人即可开战，团队按平均分':'双方人数相等即可开战，团队按总分'}}</small></span></label><div v-else class="roomDuration"><small>当前设置预计需要</small><strong>{{marathonMinutes(room.config.seconds)}} 分钟</strong><span>完成一场比赛，需要一定耐力</span></div><small v-if="isHost" class="settingsHint">修改设置会取消其他玩家的准备状态</small></div>
     <div class="gameRules"><h3>本局规则</h3><ul><li>本局使用 <b>{{dictionaryName}}词库</b></li><li>房主开始后，全员先进行服务器同步的 <b>3 秒倒计时</b></li><li><b>{{room.config.seconds}} 秒</b>后服务器自动切题{{isMarathon?'':'，共 '+room.config.rounds+' 题'}}</li><li>答对按剩余时间百分比加分，答错按相同比例扣分</li><li>未作答：正分降至原分的 <b>90%</b>，负分继续增加 <b>10%</b> 的惩罚</li><li v-if="isMarathon">马拉松：不分队，最多 10 人，率先超过 <b>{{room.config.target}}</b> 分的选手获胜</li><li v-else-if="room.config.unbalanced">人数不平衡：每队最多 5 人，双方各至少 1 人即可开始，团队分取队内平均分</li><li v-else>平衡对战：每队最多 5 人，双方各至少 1 人且人数相等即可开始，团队分为队员总分</li></ul></div>
     <div class="roomCompetition">
       <div v-if="isMarathon" class="marathonLobby"><Team title="马拉松选手" :players="room.players" :size="10" :host-id="room.host" :can-switch="false"/></div>
@@ -192,7 +226,7 @@ export default {
     <div v-else class="score"><strong class="redText">{{teamNameA}}{{room.config.unbalanced?' 平均 ': ' '}}{{totalA}}</strong><span>第 {{room.index+1}} / {{room.config.rounds}} 题</span><strong class="blueText">{{teamNameB}}{{room.config.unbalanced?' 平均 ': ' '}}{{totalB}}</strong></div>
     <div v-if="isMarathon" class="raceTrack"><div class="raceRail"><div class="raceFill" :style="{width:racePosition(ranking[0])+'%'}"></div><span class="finishFlag">4219</span><div v-for="p in room.players.filter(x=>x.id!==me?.id)" :key="p.id" class="racePin other" :style="{left:racePosition(p)+'%'}" :title="p.name+' '+p.score+'分'"><i>{{p.name[0]}}</i><small>{{p.score}}</small></div><div v-if="me" class="racePin mine" :style="{left:racePosition(me)+'%'}" :title="me.name+' '+me.score+'分'"><i>{{me.name[0]}}</i><small>我 {{me.score}}</small></div></div></div>
     <div class="timer"><div :style="{width:(remaining/(room.config.seconds*10))+'%'}"></div><b>{{Math.ceil(remaining/1000)}}s</b></div>
-    <div class="question"><span class="eyebrow">SELECT THE CORRECT MEANING</span><h1>{{room.question.word}}</h1><p>/ {{room.question.phonetic}} /</p>
+    <div class="question" :key="room.index"><span class="eyebrow">SELECT THE CORRECT MEANING</span><h1>{{room.question.word}}</h1><p>/ {{room.question.phonetic}} /</p>
       <div class="options"><button v-for="(o,i) in room.question.options" :key="o.pos+o.meaning" @click="answer(i)" :disabled="!!result" :class="{correct:result && i===result.answer}"><b>{{'ABCD'[i]}}</b><small>{{o.pos}}</small>{{o.meaning}}</button></div>
       <div class="feedback"><template v-if="result"><span :class="result.correct?'good':'bad'">{{result.correct?`答对了！ +${result.points} 分`:`答错了！ ${result.points} 分`}}</span></template><span v-else>剩余时间决定本题得分</span><small>服务器将在倒计时结束后自动切题</small></div>
     </div>
@@ -207,7 +241,7 @@ export default {
     <div class="resultActions">
       <template v-if="isHost"><button class="rematch" @click="rematch">原班人马，再来一局</button><small>保留房间码、{{isMarathon?'选手':'队伍'}}和本局设置</small></template>
       <template v-else><div class="rematchWait"><div class="pulse"></div><span>等待房主发起下一局</span></div></template>
-      <button class="quiet" @click="leave">返回首页</button>
+      <button class="quiet" @click="requestLeave">返回首页</button>
     </div>
     <p v-if="message" class="message">{{message}}</p>
   </section></main>

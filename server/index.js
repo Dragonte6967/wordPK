@@ -13,15 +13,30 @@ const dictionaries=Object.fromEntries(Object.entries({cet46:['四六级','cet46.
 const webPort = Number(process.env.PORT || 3000)
 const socketPort = Number(process.env.SOCKET_PORT || 3001)
 const startCountdownMs = Number(process.env.START_COUNTDOWN_MS || 3000)
-const MARATHON_TARGET = 4219
-const MARATHON_MINUTES = {3:9,4:7,5:7,6:7,7:7,8:8,9:8,10:9}
+const MARATHON_TARGET = Number(process.env.MARATHON_TARGET || 4219)
+const MARATHON_MINUTES = {3:162,4:35,5:18,6:14,7:12,8:12,9:12,10:12}
 const marathonMinutes = seconds => MARATHON_MINUTES[Number(seconds)] ?? MARATHON_MINUTES[5]
 const logFile = resolve(process.env.LOG_FILE || join(root,'logs','wordpk.log'))
 mkdirSync(dirname(logFile),{recursive:true})
 const cleanIp = ip => String(ip || '').replace(/^::ffff:/,'')
+const logTimeFormatter=new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false})
+const roomTypeLabel={balanced:'平衡对战',unbalanced:'人数不平衡对战',marathon:'马拉松'}
+const destroyReasonLabel={all_players_left:'所有玩家均已离开',marathon_10_unanswered:'马拉松连续 10 题无人作答',unknown:'未注明'}
+function readableLog(entry) {
+  const time=logTimeFormatter.format(new Date(entry.timestamp)),title=`\n[${time}]`
+  if(entry.event==='room_created')return `${title} 房间已创建\n  房间码：${entry.roomCode}\n  赛制：${roomTypeLabel[entry.roomType]||entry.roomType}\n  创建者 IP：${entry.ip}`
+  if(entry.event==='match_started')return `${title} 比赛开始\n  房间码：${entry.roomCode}\n  赛制：${roomTypeLabel[entry.roomType]||entry.roomType}\n  玩家：${entry.players.join('、')}\n  词库：${entry.dictionary}\n  单词总数：${entry.totalWords??'不限'}\n  答题速度：${entry.speedSeconds} 秒/题`
+  if(entry.event==='match_finished'){
+    const teams=entry.teamScores?Object.entries(entry.teamScores).map(([name,score])=>`${name} ${score} 分`).join('；'):'个人马拉松'
+    const players=entry.players.map(player=>`${player.name} ${player.score} 分`).join('；')
+    return `${title} 比赛结束\n  房间码：${entry.roomCode}\n  赛制：${roomTypeLabel[entry.roomType]||entry.roomType}\n  队伍成绩：${teams}\n  玩家成绩：${players}${entry.winner?`\n  获胜者：${entry.winner}`:''}`
+  }
+  if(entry.event==='room_destroyed')return `${title} 房间已销毁\n  房间码：${entry.roomCode}\n  赛制：${roomTypeLabel[entry.roomType]||entry.roomType}\n  原创建者 IP：${entry.ip}\n  原因：${destroyReasonLabel[entry.reason]||entry.reason}`
+  return `${title} ${entry.event}\n${JSON.stringify(entry,null,2)}`
+}
 function logEvent(event, data={}) {
   const entry={timestamp:new Date().toISOString(),event,...data}
-  console.log(`[Word PK Log]\n${JSON.stringify(entry,null,2)}`)
+  console.log(readableLog(entry))
   try { appendFileSync(logFile,`${JSON.stringify(entry)}\n`,'utf8') }
   catch (error) { console.error(`日志写入失败: ${error.message}`) }
 }
@@ -175,7 +190,7 @@ io.on('connection', socket => {
     room.status='lobby';room.index=0;room.results=[];room.questions=[];room.answered=new Map();room.question=null;room.deadline=null;room.startsAt=null;room.marathonWinnerId=null;room.unansweredRounds=0;room.timer=null;room.prefetchTimer=null;room.endLogged=false
     emit(room);done?.({ok:true})
   })
-  socket.on('answer', ({ answer, index }, done) => { const room=[...rooms.values()].find(r=>r.players.has(socket.id));if(!room||room.status!=='playing'||index!==room.index||Date.now()>room.deadline||!Number.isInteger(answer)||answer<0||answer>3)return done?.([0]);if(room.answered.has(socket.id)){const result=room.answered.get(socket.id);return done?.([1,result.correct?1:0,result.answer,result.points,result.choice])}const p=room.players.get(socket.id),correct=answer===room.question.answer;const percent=Math.max(0,Math.min(100,Math.round((room.deadline-Date.now())/(room.config.seconds*10))));const points=correct?percent:-percent;p.score+=points;const result={ok:true,correct,answer:room.question.answer,points,choice:answer};room.answered.set(socket.id,result);if(room.config.mode==='marathon'&&p.score>MARATHON_TARGET&&!room.marathonWinnerId){room.marathonWinnerId=p.id;clearTimeout(room.timer);finishQuestion(room,index)}else emitScore(room,p);done?.([1,correct?1:0,room.question.answer,points,answer]) })
+  socket.on('answer', ({ answer, index }, done) => { const room=[...rooms.values()].find(r=>r.players.has(socket.id));if(!room||room.status!=='playing'||index!==room.index||Date.now()>room.deadline||!Number.isInteger(answer)||answer<0||answer>3)return done?.([0]);if(room.answered.has(socket.id)){const result=room.answered.get(socket.id);return done?.([1,result.correct?1:0,result.answer,result.points,result.choice])}const correctAnswer=room.question.answer,p=room.players.get(socket.id),correct=answer===correctAnswer;const percent=Math.max(0,Math.min(100,Math.round((room.deadline-Date.now())/(room.config.seconds*10))));const points=correct?percent:-percent;p.score+=points;const result={ok:true,correct,answer:correctAnswer,points,choice:answer};room.answered.set(socket.id,result);if(room.config.mode==='marathon'&&p.score>MARATHON_TARGET&&!room.marathonWinnerId){room.marathonWinnerId=p.id;clearTimeout(room.timer);finishQuestion(room,index)}else emitScore(room,p);done?.([1,correct?1:0,correctAnswer,points,answer]) })
   socket.on('disconnect', () => { for(const room of rooms.values())if(room.players.has(socket.id)){const player=room.players.get(socket.id),retain=room.status==='playing'||room.status==='finished';if(retain)player.connected=false;else room.players.delete(socket.id);if(room.host===socket.id){const next=[...room.players.values()].find(p=>p.connected);if(next){room.host=next.id;next.ready=true}}if(![...room.players.values()].some(p=>p.connected))destroyRoom(room,null,'all_players_left');else emit(room)} })
 })
 webServer.listen(webPort, '0.0.0.0', () => console.log(`Word PK web: http://0.0.0.0:${webPort}`))

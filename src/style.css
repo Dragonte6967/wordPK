@@ -1,4 +1,5 @@
 /* Use local fonts so LAN play never waits for an external font service. */
+.brand{margin:0;padding:0;border:0;background:transparent;color:#182033;cursor:default}.brand:hover{transform:none;filter:none}.brand.canLeave{cursor:pointer}.brand.canLeave:hover{transform:translateY(-1px)}
 .panels .selects>*{width:33.333%}
 body .resultPage{max-width:1180px;padding-top:70px}
 .unbalancedToggle{display:flex;align-items:center;gap:10px;margin:10px 0 4px;padding:10px 12px;background:#f2eee6;border:1px solid #ddd6ca;border-radius:3px;cursor:pointer}.unbalancedToggle input{width:18px;height:18px;margin:0;accent-color:#e65445}.unbalancedToggle span{display:grid;gap:2px}.unbalancedToggle b{font-size:12px}.unbalancedToggle small{font-size:10px;color:#737c77}.selects select:disabled{opacity:.55;cursor:not-allowed}

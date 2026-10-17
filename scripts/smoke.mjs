@@ -2,8 +2,9 @@ import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { once } from 'node:events'
 import { io } from 'socket.io-client'
+import { serverCandidates, serverHost } from '../src/serverAddress.js'
 
-const server=spawn(process.execPath,['server/index.js'],{env:{...process.env,PORT:'3099',SOCKET_PORT:'3100',START_COUNTDOWN_MS:'120',LOG_FILE:'logs/smoke.log'},stdio:['ignore','pipe','pipe']})
+const server=spawn(process.execPath,['server/index.js'],{env:{...process.env,PORT:'3099',SOCKET_PORT:'3100',START_COUNTDOWN_MS:'120',MARATHON_TARGET:'-101',LOG_FILE:'logs/smoke.log'},stdio:['ignore','pipe','pipe']})
 const clients=[]
 const decodeRoom=data=>{const config=data.g;return {code:data.c,host:data.h,config:{mode:config.m,size:config.z,rounds:config.r,seconds:config.s,unbalanced:Boolean(config.u),dictionary:config.d,target:config.t},teamNames:{1:data.n[0],2:data.n[1]},status:data.s,index:data.i,deadline:data.d??null,startsAt:data.a??null,marathonWinnerId:data.w??null,players:data.p.map(player=>({id:player.i,name:player.n,team:player.t,score:player.s,ready:Boolean(player.r),connected:Boolean(player.c)})),question:null,results:(data.r||[]).map(round=>({word:round.w,meaning:round.m,pos:round.o,answers:round.a.map(answer=>({playerId:answer.i,correct:Boolean(answer.c),points:answer.p,choice:answer.h,unanswered:Boolean(answer.u)}))})),finished:data.s==='finished'}}
 const rpc=async(s,event,data)=>{const response=await s.timeout(3000).emitWithAck(event,data);if(response?.room)response.room=decodeRoom(response.room);return response}
@@ -13,6 +14,9 @@ const waitState=(socket,predicate)=>new Promise((resolve,reject)=>{
   socket.on('r',listener)
 })
 try {
+  assert.equal(serverHost('http://192.168.1.10:3001'),'192.168.1.10')
+  assert.deepEqual(serverCandidates('192.168.1.10','http:'),['http://192.168.1.10:3001','https://192.168.1.10:443'])
+  assert.deepEqual(serverCandidates('example.com','https:'),['https://example.com:443','http://example.com:3001'])
   await Promise.race([once(server.stdout,'data'),once(server,'exit').then(()=>{throw new Error('server exited')})])
   let initialLoad
   for(let i=0;i<10;i++){
@@ -147,11 +151,11 @@ try {
   const marathonRoom=await rpc(marathon,'room:create',{name:'Runner',config:{mode:'marathon',size:2,rounds:10,seconds:3}})
   assert.equal(marathonRoom.room.config.mode,'marathon')
   assert.equal(marathonRoom.room.config.size,10)
-  assert.equal(marathonRoom.room.config.target,4219)
+  assert.equal(marathonRoom.room.config.target,-101)
   assert.equal(marathonRoom.room.players[0].team,null)
   assert.equal((await rpc(marathon,'room:update-settings',{seconds:3})).ok,true)
   const preview=await rpc(marathon,'room:preview',{code:marathonRoom.room.code})
-  assert.equal(preview.preview.minMinutes,9)
+  assert.equal(preview.preview.minMinutes,162)
   assert.equal(preview.preview.mode,'marathon')
   countdownPromise=waitState(marathon,r=>r.status==='countdown')
   statePromise=waitState(marathon,r=>r.status==='playing')
@@ -165,6 +169,13 @@ try {
   assert.ok(marathonPrefetchPacket[1].every(question=>question.length===3&&question[2].length===4))
   assert.equal(room.question,null)
   assert.equal(room.players.length,1)
+  const marathonFinished=waitState(marathon,r=>r.status==='finished')
+  const winningReply=await rpc(marathon,'answer',{answer:0,index:0})
+  assert.equal(winningReply[0],1)
+  assert.ok(Number.isInteger(winningReply[2]))
+  room=await marathonFinished
+  assert.equal(room.marathonWinnerId,marathon.id)
+  assert.equal(room.results.length,1)
   console.log(`PASS: room settings, balanced 1v1/5v5, rejected balanced 2v1, allowed unbalanced 2v1, marathon, countdown, scoring, rematch, unanswered penalty, and result matrix. Answer batch max ${Math.max(...timings).toFixed(1)} ms.`)
 } finally {
   clients.forEach(s=>s.disconnect())
