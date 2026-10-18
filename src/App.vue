@@ -5,7 +5,7 @@ import { io } from 'socket.io-client'
 import { serverCandidates, serverHost } from './serverAddress.js'
 
 export default {
-  data() { const host=localStorage.wordPkServerHost||serverHost(localStorage.wordPkServer,location.hostname),defaultServer=serverCandidates(host,location.protocol)[0];return { socket: null, phase: 'home', room: null, message: '', noticeModal: '', settingsModal: false, serverDraft: '', detectingServer: false, settingsError: '', leaveConfirm: false, loadWarning: false, pendingAction: null, teamRenameModal: null, teamNameDraft: '', serverLoad: [0,0,0], result: null, remaining: 0, now: Date.now(), timerId: null, clockOffset: 0, clockSamples: [], questionCache: [], marathonJoinPreview: null, name: localStorage.name || '', server: defaultServer, form: { mode: 'standard' }, join: { code: '', team: 1 }, copied: false } },
+  data() { const host=localStorage.wordPkServerHost||serverHost(localStorage.wordPkServer,location.hostname),defaultServer=serverCandidates(host,location.protocol)[0];return { socket: null, phase: 'home', room: null, message: '', noticeModal: '', settingsModal: false, serverDraft: '', detectingServer: false, settingsError: '', leaveConfirm: false, loadWarning: false, pendingAction: null, teamRenameModal: null, teamNameDraft: '', serverLoad: [0,0,0], result: null, remaining: 0, now: Date.now(), timerId: null, bannerTimer: null, banner: null, clockOffset: 0, clockSamples: [], questionCache: [], marathonJoinPreview: null, name: localStorage.name || '', server: defaultServer, form: { mode: 'standard' }, join: { code: '', team: 1 }, copied: false } },
   computed: {
     me() { return this.room?.players.find(p => p.id === this.socket?.id) },
     isHost() { return this.room?.host === this.socket?.id },
@@ -31,9 +31,16 @@ export default {
     loadLevel() { return this.serverLoad[0]>=75?'负载较高':this.serverLoad[0]>=45?'负载一般':'运行流畅' },
     loadClass() { return this.serverLoad[0]>=75?'high':this.serverLoad[0]>=45?'medium':'low' }
   },
-  mounted() { this.timerId=setInterval(()=>{this.now=Date.now()+this.clockOffset;this.remaining=this.room?.deadline?Math.max(0,this.room.deadline-this.now):0},100);this.connect() },
-  beforeUnmount() { clearInterval(this.timerId);this.socket?.disconnect() },
+  watch:{phase(next){if(next==='home')this.fetchBanner();else{clearTimeout(this.bannerTimer);this.banner=null}}},
+  mounted() { this.timerId=setInterval(()=>{this.now=Date.now()+this.clockOffset;this.remaining=this.room?.deadline?Math.max(0,this.room.deadline-this.now):0},100);this.fetchBanner();this.connect() },
+  beforeUnmount() { clearInterval(this.timerId);clearTimeout(this.bannerTimer);this.socket?.disconnect() },
   methods: {
+    async fetchBanner(){
+      clearTimeout(this.bannerTimer)
+      if(this.phase!=='home')return
+      try{const response=await fetch('/api/banner',{cache:'no-store'});if(!response.ok)throw new Error('公告请求失败');const data=await response.json();if(this.phase!=='home')return;this.banner=data.text||null;const delay=data.nextChangeAt?Math.max(1000,Math.min(60000,data.nextChangeAt-data.now+250)):60000;this.bannerTimer=setTimeout(()=>this.fetchBanner(),delay)}
+      catch{this.banner=null;this.bannerTimer=setTimeout(()=>this.fetchBanner(),30000)}
+    },
     decodeRoom(data) {
       const config=data.g
       return {code:data.c,host:data.h,config:{mode:config.m,size:config.z,rounds:config.r,seconds:config.s,unbalanced:Boolean(config.u),dictionary:config.d,target:config.t},teamNames:{1:data.n[0],2:data.n[1]},status:data.s,index:data.i,deadline:data.d??null,startsAt:data.a??null,marathonWinnerId:data.w??null,players:data.p.map(player=>({id:player.i,name:player.n,team:player.t,score:player.s,ready:Boolean(player.r),connected:Boolean(player.c)})),question:null,results:(data.r||[]).map(round=>({word:round.w,meaning:round.m,pos:round.o,answers:round.a.map(answer=>({playerId:answer.i,correct:Boolean(answer.c),points:answer.p,choice:answer.h,unanswered:Boolean(answer.u)}))})),finished:data.s==='finished'}
@@ -169,6 +176,11 @@ export default {
 <template>
 
   <main><header><div class="headerBrand"><button class="brand" :class="{canLeave:phase!=='home'&&room}" :aria-label="phase!=='home'&&room?'退出当前房间':'Word PK'" @click="requestLeave"><span>W</span> WORD <b>PK</b></button><div class="serverLoad" :class="loadClass"><i></i><span>服务器负载 {{serverLoad[0]}}% · {{loadLevel}}</span></div></div><button class="settingsButton" @click="openSettings">⚙ 设置</button></header>
+  <div v-if="phase==='home'&&banner" class="siteBanner" role="status">
+    <span class="siteBannerLabel"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 10v4h4l9 4V6l-9 4H4Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="m8 14 1 6h3l-1-5M20 9v6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>站内公告</span>
+    <div class="siteBannerWindow" tabindex="0" :title="banner"><div :key="banner" class="siteBannerTrack" :style="{'--notice-duration':Math.max(20,banner.length*.4)+'s'}"><span class="siteBannerText">{{banner}}</span><span class="siteBannerText" aria-hidden="true">{{banner}}</span></div></div>
+    <span class="siteBannerIndicator" aria-hidden="true"><i></i> NOTICE</span>
+  </div>
   <Transition name="overlay"><div v-if="leaveConfirm" class="modalMask" @click.self="leaveConfirm=false">
     <div class="marathonModal" role="alertdialog" aria-modal="true" aria-labelledby="leave-title"><span class="modalFlag">↩</span><h2 id="leave-title">退出当前房间？</h2><p>退出后将返回首页，当前对局进度不会保留在此设备上。</p><div class="modalActions"><button class="quiet" @click="leaveConfirm=false">继续留在房间</button><button @click="confirmLeave">确认退出</button></div></div>
   </div></Transition>

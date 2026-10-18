@@ -1,7 +1,7 @@
 import express from 'express'
 import { createServer } from 'node:http'
 import { Server } from 'socket.io'
-import { appendFileSync, mkdirSync, readFileSync } from 'node:fs'
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createAdminAuth } from './admin.js'
@@ -56,6 +56,9 @@ const app = express()
 app.disable('etag')
 app.set('trust proxy','loopback')
 const adminAuth=createAdminAuth(resolve(process.env.ADMIN_AUTH_FILE || join(root,'logs','admin-auth.json')))
+const bannerFile=resolve(process.env.BANNER_FILE || join(root,'logs','banner.json'))
+let banner=null
+try { const saved=JSON.parse(readFileSync(bannerFile,'utf8'));if(typeof saved.text==='string'&&Number.isFinite(saved.startAt)&&Number.isFinite(saved.endAt))banner=saved } catch (error) { if(error.code!=='ENOENT')console.error(`公告读取失败: ${error.message}`) }
 app.use('/api/admin',express.json({limit:'2kb'}))
 app.use('/api/admin',(_,res,next)=>{res.set('Cache-Control','no-store');next()})
 app.get('/api/admin/status',adminAuth.status)
@@ -63,6 +66,21 @@ app.post('/api/admin/setup',adminAuth.setup)
 app.post('/api/admin/login',adminAuth.login)
 app.post('/api/admin/logout',adminAuth.logout)
 app.get('/api/admin/dashboard',adminAuth.require,(_,res)=>res.json(adminDashboard()))
+app.put('/api/admin/banner',adminAuth.require,(req,res)=>{
+  const {text,startAt,endAt}=req.body||{}
+  let nextBanner
+  if(text==='')nextBanner=null
+  else if(typeof text!=='string'||!text.trim()||text.trim().length>200||!Number.isSafeInteger(startAt)||!Number.isSafeInteger(endAt)||endAt<=startAt)return res.status(400).json({error:'请填写 1–200 字公告，并设置有效的开始和结束时间'})
+  else nextBanner={text:text.trim(),startAt,endAt}
+  try { mkdirSync(dirname(bannerFile),{recursive:true});writeFileSync(bannerFile,JSON.stringify(nextBanner),'utf8') }
+  catch(error){console.error(`公告保存失败: ${error.message}`);return res.status(500).json({error:'公告保存失败'})}
+  banner=nextBanner
+  res.json({banner})
+})
+app.get('/api/banner',(_,res)=>{
+  const now=Date.now(),active=banner&&banner.startAt<=now&&now<banner.endAt
+  res.set('Cache-Control','no-store').json({now,text:active?banner.text:null,nextChangeAt:banner?(active?banner.endAt:now<banner.startAt?banner.startAt:null):null})
+})
 app.use((req,res,next)=>{
   if(req.path==='/'||req.path.endsWith('.html'))res.set('Cache-Control','no-store, no-cache, must-revalidate, proxy-revalidate')
   next()
@@ -83,7 +101,7 @@ const rooms = new Map()
 let loadState=[0,0,0]
 const loadHistory=[]
 function adminDashboard(){
-  return {now:Date.now(),load:{percent:loadState[0],rooms:rooms.size,players:[...rooms.values()].reduce((sum,room)=>sum+room.players.size,0)},history:loadHistory,rooms:[...rooms.values()].map(room=>({code:room.code,mode:roomType(room),status:room.status,createdAt:room.createdAt||null,dictionary:room.config.dictionary,seconds:room.config.seconds,rounds:room.config.rounds,index:room.index,teamNames:room.teamNames,teamScores:room.config.mode==='marathon'?null:{1:teamScore(room,1),2:teamScore(room,2)},players:[...room.players.values()].map(player=>({name:player.name,team:player.team,score:player.score,connected:player.connected}))}))}
+  return {now:Date.now(),banner,load:{percent:loadState[0],rooms:rooms.size,players:[...rooms.values()].reduce((sum,room)=>sum+room.players.size,0)},history:loadHistory,rooms:[...rooms.values()].map(room=>({code:room.code,mode:roomType(room),status:room.status,createdAt:room.createdAt||null,dictionary:room.config.dictionary,seconds:room.config.seconds,rounds:room.config.rounds,index:room.index,teamNames:room.teamNames,teamScores:room.config.mode==='marathon'?null:{1:teamScore(room,1),2:teamScore(room,2)},players:[...room.players.values()].map(player=>({name:player.name,team:player.team,score:player.score,connected:player.connected}))}))}
 }
 let lastCpu=process.cpuUsage(),lastCpuAt=process.hrtime.bigint(),lastLoadTick=Date.now()
 function updateLoad() {

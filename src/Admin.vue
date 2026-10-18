@@ -1,11 +1,12 @@
 <script>
 export default {
-  data(){return {phase:'loading',password:'',confirmPassword:'',setupCode:'',error:'',busy:false,dashboard:null,timer:null}},
+  data(){return {phase:'loading',password:'',confirmPassword:'',setupCode:'',error:'',busy:false,dashboard:null,timer:null,bannerDraft:{text:'',start:'',end:''},bannerLoaded:false,bannerSaving:false,bannerFeedback:''}},
   computed:{
     rooms(){return this.dashboard?.rooms||[]},
     history(){return this.dashboard?.history||[]},
     labels(){return {balanced:'平衡对战',unbalanced:'人数不平衡',marathon:'马拉松',lobby:'等待开赛',countdown:'开赛倒计时',playing:'答题中',finished:'已结赛'}},
-    updatedAt(){return this.dashboard?.now?new Date(this.dashboard.now).toLocaleTimeString('zh-CN',{hour12:false}):'—'}
+    updatedAt(){return this.dashboard?.now?new Date(this.dashboard.now).toLocaleTimeString('zh-CN',{hour12:false}):'—'},
+    bannerStatus(){const banner=this.dashboard?.banner,now=this.dashboard?.now||Date.now();return !banner?'未设置':now<banner.startAt?'等待开始':now>=banner.endAt?'已结束':'展示中'}
   },
   mounted(){this.initialize()},
   beforeUnmount(){clearInterval(this.timer)},
@@ -31,10 +32,22 @@ export default {
       finally{this.busy=false}
     },
     async refresh(){
-      try{this.dashboard=await this.api('dashboard');this.error='';if(!this.timer)this.timer=setInterval(()=>this.refresh(),5000)}
+      try{this.dashboard=await this.api('dashboard');if(!this.bannerLoaded){this.loadBannerDraft(this.dashboard.banner);this.bannerLoaded=true}this.error='';if(!this.timer)this.timer=setInterval(()=>this.refresh(),5000)}
       catch(error){if(error.status===401){clearInterval(this.timer);this.timer=null;this.dashboard=null;this.phase='login'}else this.error='数据暂时无法更新，正在重试'}
     },
     async logout(){try{await this.api('logout',{method:'POST'})}finally{clearInterval(this.timer);this.timer=null;this.dashboard=null;this.phase='login';this.password=''}},
+    localDateTime(value){if(!value)return '';const date=new Date(value);return new Date(date.getTime()-date.getTimezoneOffset()*60000).toISOString().slice(0,16)},
+    loadBannerDraft(banner){this.bannerDraft={text:banner?.text||'',start:this.localDateTime(banner?.startAt),end:this.localDateTime(banner?.endAt)}},
+    async saveBanner(clear=false){
+      if(this.bannerSaving)return
+      this.bannerFeedback=''
+      const {text,start,end}=this.bannerDraft
+      if(!clear&&(!text.trim()||!start||!end||new Date(end).getTime()<=new Date(start).getTime())){this.bannerFeedback='请填写公告内容和有效的起止时间';return}
+      this.bannerSaving=true
+      try{const data=await this.api('banner',{method:'PUT',body:JSON.stringify(clear?{text:''}:{text:text.trim(),startAt:new Date(start).getTime(),endAt:new Date(end).getTime()})});this.dashboard.banner=data.banner;this.loadBannerDraft(data.banner);this.bannerFeedback=clear?'公告已清除':'公告已保存'}
+      catch(error){this.bannerFeedback=error.message}
+      finally{this.bannerSaving=false}
+    },
     chartPath(field,max){
       const samples=this.history
       if(!samples.length)return ''
@@ -64,6 +77,9 @@ export default {
     <section v-else class="dashboard">
       <div class="dashboardTitle"><div><span class="eyebrow">LIVE OVERVIEW</span><h1>服务器概览</h1><p>每 5 秒更新 · 上次更新 {{updatedAt}}</p></div><span class="liveBadge"><i></i> 实时监控</span></div>
       <p v-if="error" class="error" role="alert">{{error}}</p>
+      <section class="bannerAdmin"><div class="bannerAdminHead"><div><span class="eyebrow">SITE NOTICE</span><h2>首页提醒 Banner</h2><p>仅在首页页眉下方展示；房间和对局页面不显示。</p></div><span class="bannerState">{{bannerStatus}}</span></div>
+        <form @submit.prevent="saveBanner(false)"><label>公告内容<textarea v-model="bannerDraft.text" maxlength="200" rows="2" placeholder="例如：今晚 22:00–23:00 服务器维护，请提前结束对局" required></textarea></label><div class="bannerDates"><label>开始时间<input v-model="bannerDraft.start" type="datetime-local" required></label><label>结束时间<input v-model="bannerDraft.end" type="datetime-local" required></label></div><div class="bannerActions"><span>{{bannerFeedback||'时间按当前设备时区填写，最多 200 字。'}}</span><button type="button" class="bannerClear" :disabled="bannerSaving||!dashboard?.banner" @click="saveBanner(true)">清除公告</button><button type="submit" :disabled="bannerSaving">{{bannerSaving?'保存中…':'保存公告'}}</button></div></form>
+      </section>
       <div class="stats"><article><span>服务器负载</span><strong>{{dashboard?.load.percent??0}}<small>%</small></strong><p>综合 CPU、延迟与连接量</p></article><article><span>当前房间</span><strong>{{dashboard?.load.rooms??0}}</strong><p>包括等待、对战和已结赛房间</p></article><article><span>房间玩家</span><strong>{{dashboard?.load.players??0}}</strong><p>当前房间中的玩家总数</p></article></div>
       <div class="charts"><article class="chartCard"><div class="chartHead"><div><span class="eyebrow">SERVER LOAD</span><h2>服务器负载</h2></div><strong>{{dashboard?.load.percent??0}}%</strong></div><div class="chartPlot"><svg viewBox="0 0 720 160" preserveAspectRatio="none" role="img" aria-label="最近 30 分钟服务器负载曲线"><path class="gridLine" d="M 24 30 H 696 M 24 86 H 696 M 24 142 H 696"/><path class="loadArea" :d="chartArea('load',100)"/><path class="loadLine" :d="chartPath('load',100)"/></svg><span class="axisTop">100%</span><span class="axisBottom">0%</span></div><div class="chartFoot"><span>{{time(history[0]?.time)}}</span><span>最近 30 分钟</span><span>{{time(history.at(-1)?.time)}}</span></div></article>
       <article class="chartCard"><div class="chartHead"><div><span class="eyebrow">ACTIVE ROOMS</span><h2>房间数量</h2></div><strong>{{dashboard?.load.rooms??0}}</strong></div><div class="chartPlot"><svg viewBox="0 0 720 160" preserveAspectRatio="none" role="img" aria-label="最近 30 分钟房间数量曲线"><path class="gridLine" d="M 24 30 H 696 M 24 86 H 696 M 24 142 H 696"/><path class="roomArea" :d="chartArea('rooms',Math.max(5,...history.map(item=>item.rooms)))"/><path class="roomLine" :d="chartPath('rooms',Math.max(5,...history.map(item=>item.rooms)))"/></svg><span class="axisTop">{{Math.max(5,...history.map(item=>item.rooms))}}</span><span class="axisBottom">0</span></div><div class="chartFoot"><span>{{time(history[0]?.time)}}</span><span>最近 30 分钟</span><span>{{time(history.at(-1)?.time)}}</span></div></article></div>

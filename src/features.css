@@ -48,3 +48,17 @@ button:active:not(:disabled){transform:translateY(1px)}
   .hero,.room,.game,.resultPage,.countdownPage,.question,.countdownNumber,.pulse,.serverLoad.high i,.player .readyState.pending{animation:none!important}
   .overlay-enter-active,.overlay-leave-active,.overlay-enter-active .marathonModal,.overlay-leave-active .marathonModal,button,.options button,.roomSettings select,.settingsModal input,.raceFill,.racePin{transition:none!important}
 }
+
+.siteBanner{display:flex;align-items:center;gap:18px;min-height:40px;padding:5px clamp(16px,4vw,60px);border-bottom:1px solid #dba67a30;background:linear-gradient(100deg,#f9e8dc 0%,#fcf4e8 45%,#f5efe3 100%);color:#765d49;font-size:12px;letter-spacing:.2px}
+.siteBannerLabel{display:inline-flex;align-items:center;gap:7px;flex:none;padding:4px 10px;border:1px solid #cf78552b;border-radius:5px;background:#fffaf3a8;color:#ad5940;font-size:11px;font-weight:800;line-height:18px}
+.siteBannerLabel svg{width:16px;height:16px}
+.siteBannerWindow{min-width:0;flex:1;overflow:hidden;container-type:inline-size;mask-image:linear-gradient(90deg,transparent,#000 14px,#000 calc(100% - 22px),transparent)}
+.siteBannerWindow:focus-visible{outline:2px solid #bd7958;outline-offset:3px;border-radius:3px}
+.siteBannerTrack{display:flex;width:max-content;animation:siteBannerScroll var(--notice-duration,24s) linear infinite}
+.siteBannerText{display:block;flex:none;min-width:100cqw;padding:0 80px 0 14px;white-space:nowrap;line-height:28px}
+.siteBanner:hover .siteBannerTrack,.siteBanner:focus-within .siteBannerTrack{animation-play-state:paused}
+.siteBannerIndicator{display:flex;align-items:center;gap:6px;flex:none;color:#aa917b;font:9px ui-monospace,monospace;letter-spacing:1.5px}
+.siteBannerIndicator i{width:5px;height:5px;background:#c78b61;border-radius:50%;box-shadow:0 0 0 3px #c78b6114}
+@keyframes siteBannerScroll{to{transform:translateX(-50%)}}
+@media(max-width:600px){.siteBanner{gap:9px;min-height:36px;font-size:11px}.siteBannerLabel{padding:2px 7px;font-size:10px;gap:5px}.siteBannerIndicator{display:none}.siteBannerLabel svg{width:14px;height:14px}}
+@media(prefers-reduced-motion:reduce){.siteBannerTrack{animation:none;width:100%}.siteBannerText{min-width:0;padding-right:14px;white-space:normal;overflow-wrap:anywhere}.siteBannerText[aria-hidden]{display:none}.siteBannerWindow{mask-image:none}}
