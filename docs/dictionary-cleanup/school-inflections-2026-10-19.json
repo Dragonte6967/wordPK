@@ -1,0 +1,446 @@
+[
+  {
+    "file": "cz.data",
+    "word": "hang",
+    "before": " [hung-hung] 悬挂， 吊； 徘徊； [hanged-hanged] 吊",
+    "after": "悬挂， 吊； 徘徊；  吊"
+  },
+  {
+    "file": "cz.data",
+    "word": "throw",
+    "before": " [threw-thrown] 投， 扔， 抛； 使突然陷入； 使困惑， 使吃惊",
+    "after": "投， 扔， 抛； 使突然陷入； 使困惑， 使吃惊"
+  },
+  {
+    "file": "cz.data",
+    "word": "tie",
+    "before": " [tying]　拴， 扎， 捆； 把…打结， 系上； 连接， 使有关联； 不分胜负",
+    "after": "拴， 扎， 捆； 把…打结， 系上； 连接， 使有关联； 不分胜负"
+  },
+  {
+    "file": "cz.data",
+    "word": "lend",
+    "before": " [lent-lent] 把…借给， 出借； 贷",
+    "after": "把…借给， 出借； 贷"
+  },
+  {
+    "file": "cz.data",
+    "word": "write",
+    "before": " [wrote-written] 写， 书写， 写字； 写作， 作曲； 写",
+    "after": "写， 书写， 写字； 写作， 作曲； 写"
+  },
+  {
+    "file": "cz.data",
+    "word": "understand",
+    "before": " [understood-understood] 理解， 懂； 了解， 意识到； 认为， 以为",
+    "after": "理解， 懂； 了解， 意识到； 认为， 以为"
+  },
+  {
+    "file": "cz.data",
+    "word": "picnic",
+    "before": " [picnicked-picnicked, picnicking] 去野餐",
+    "after": "去野餐"
+  },
+  {
+    "file": "cz.data",
+    "word": "wake",
+    "before": " [woke-waken]　醒来， 唤醒； 激起， 唤起； 警觉， 振奋",
+    "after": "醒来， 唤醒； 激起， 唤起； 警觉， 振奋"
+  },
+  {
+    "file": "cz.data",
+    "word": "burn",
+    "before": " [burnt/burned-burnt/burned] 燃烧， 点燃；",
+    "after": "燃烧， 点燃；"
+  },
+  {
+    "file": "cz.data",
+    "word": "let",
+    "before": " [let-let]　允许， 让； 假设； 出租； 排放",
+    "after": "允许， 让； 假设； 出租； 排放"
+  },
+  {
+    "file": "cz.data",
+    "word": "cut",
+    "before": " [cut-cut, cutting] 切， 剪； 修剪， 剪短； 割破， 划破； 减少， 削减； 中断， 停止",
+    "after": "切， 剪； 修剪， 剪短； 割破， 划破； 减少， 削减； 中断， 停止"
+  },
+  {
+    "file": "cz.data",
+    "word": "clap",
+    "before": " [clapped-clapped, clapping] 拍手， 鼓掌",
+    "after": "拍手， 鼓掌"
+  },
+  {
+    "file": "cz.data",
+    "word": "lie",
+    "before": " [lay-lain, lying] 躺， 平放； 位于； 处于(某种状",
+    "after": "躺， 平放； 位于； 处于(某种状"
+  },
+  {
+    "file": "cz.data",
+    "word": "shoot",
+    "before": " [shot-shot] 发射， 射击； 投， 射门， 投篮； 拍摄； 射杀， 射伤； 发芽",
+    "after": "发射， 射击； 投， 射门， 投篮； 拍摄； 射杀， 射伤； 发芽"
+  },
+  {
+    "file": "cz.data",
+    "word": "put",
+    "before": " [put-put, putting] 放， 摆， 使处于； 说， 表达； 提出， 提交； 记下，",
+    "after": "放， 摆， 使处于； 说， 表达； 提出， 提交； 记下，"
+  },
+  {
+    "file": "cz.data",
+    "word": "chat",
+    "before": " [chatted-chatted, chatting] 闲谈， 聊天",
+    "after": "闲谈， 聊天"
+  },
+  {
+    "file": "cz.data",
+    "word": "tell",
+    "before": " [told-told] 讲， 告诉； 吩咐， 命令； 说明， 显示； 分辨， 区分",
+    "after": "讲， 告诉； 吩咐， 命令； 说明， 显示； 分辨， 区分"
+  },
+  {
+    "file": "cz.data",
+    "word": "hit",
+    "before": " [hit-hit; hitting] 打， 击中； 碰撞",
+    "after": "打， 击中； 碰撞"
+  },
+  {
+    "file": "cz.data",
+    "word": "beat",
+    "before": " [beat-beaten]　打， 击， 敲； 打败， 胜过； 跳动",
+    "after": "打， 击， 敲； 打败， 胜过； 跳动"
+  },
+  {
+    "file": "cz.data",
+    "word": "mean",
+    "before": " [meant-meant] 表示…的意思； 意欲， 打算； 意指， 意味着",
+    "after": "表示…的意思； 意欲， 打算； 意指， 意味着"
+  },
+  {
+    "file": "cz.data",
+    "word": "meet",
+    "before": " [met-met] 遇见， 碰到； 接； 和…见面， 和…会面",
+    "after": "遇见， 碰到； 接； 和…见面， 和…会面"
+  },
+  {
+    "file": "cz.data",
+    "word": "die",
+    "before": " [dying]　死， 死亡； 消失； 停止运行； 渴望； 消",
+    "after": "死， 死亡； 消失； 停止运行； 渴望； 消"
+  },
+  {
+    "file": "cz.data",
+    "word": "hold",
+    "before": " [held-held] 拿， 握； 使保持某种状态；",
+    "after": "拿， 握； 使保持某种状态；"
+  },
+  {
+    "file": "cz.data",
+    "word": "take",
+    "before": " [took-taken] 带， 携带； 需要， 花费； 拿， 取得； 接受； 吃， 喝， 服(药",
+    "after": "带， 携带； 需要， 花费； 拿， 取得； 接受； 吃， 喝， 服(药"
+  },
+  {
+    "file": "cz.data",
+    "word": "hum",
+    "before": " [hummed-hummed, humming] 哼曲子； 发出嗡嗡声； 忙碌， 充满活力",
+    "after": "哼曲子； 发出嗡嗡声； 忙碌， 充满活力"
+  },
+  {
+    "file": "cz.data",
+    "word": "stand",
+    "before": " [stood-stood] 站， 站立； 坐落， 位于； 继续存在， 保持有效； 处于特定状态",
+    "after": "站， 站立； 坐落， 位于； 继续存在， 保持有效； 处于特定状态"
+  },
+  {
+    "file": "cz.data",
+    "word": "could",
+    "before": "能，会，可以〔can 的过去式〕",
+    "after": "能，会，可以"
+  },
+  {
+    "file": "cz.data",
+    "word": "feed",
+    "before": " [fed-fed] 喂， 为…提供食物； 吃， 以…为",
+    "after": "喂， 为…提供食物； 吃， 以…为"
+  },
+  {
+    "file": "cz.data",
+    "word": "forget",
+    "before": " [forgot-forgotten] 忘记， 遗忘",
+    "after": "忘记， 遗忘"
+  },
+  {
+    "file": "cz.data",
+    "word": "make",
+    "before": " [made-made] 做， 制造； 作出， 制定； 使， 迫使； 获得， 挣得； 成为， 到达",
+    "after": "做， 制造； 作出， 制定； 使， 迫使； 获得， 挣得； 成为， 到达"
+  },
+  {
+    "file": "cz.data",
+    "word": "lose",
+    "before": " [lost-lost] 失去， 损失； 迷失， 使迷路； 输， 输掉； 白费， 浪费； 走慢",
+    "after": "失去， 损失； 迷失， 使迷路； 输， 输掉； 白费， 浪费； 走慢"
+  },
+  {
+    "file": "cz.data",
+    "word": "fall",
+    "before": " [fell-fallen] 落下， 降落； 跌倒， 塌倒； 降临， 来临； 失势， 垮台； 下垂， 倾",
+    "after": "落下， 降落； 跌倒， 塌倒； 降临， 来临； 失势， 垮台； 下垂， 倾"
+  },
+  {
+    "file": "cz.data",
+    "word": "eat",
+    "before": " [ate-eaten] 吃， 吃饭",
+    "after": "吃， 吃饭"
+  },
+  {
+    "file": "cz.data",
+    "word": "steal",
+    "before": " [stole-stolen] 偷盗， 行窃； 悄悄地移动",
+    "after": "偷盗， 行窃； 悄悄地移动"
+  },
+  {
+    "file": "cz.data",
+    "word": "spend",
+    "before": " [spent-spent] 花费， 用； 花； 度过， 消磨； 消耗， 用尽",
+    "after": "花费， 用； 花； 度过， 消磨； 消耗， 用尽"
+  },
+  {
+    "file": "cz.data",
+    "word": "stop",
+    "before": " [stopped-stopped, stopping]　停止， 中断； 塞住， 堵塞； 阻止， 阻挠； 逗留， 歇宿",
+    "after": "停止， 中断； 塞住， 堵塞； 阻止， 阻挠； 逗留， 歇宿"
+  },
+  {
+    "file": "cz.data",
+    "word": "sleep",
+    "before": " [slept-slept]　睡",
+    "after": "睡"
+  },
+  {
+    "file": "cz.data",
+    "word": "sweep",
+    "before": " [swept-swept] 扫， 打扫， 拂； 扫过， 掠过，",
+    "after": "扫， 打扫， 拂； 扫过， 掠过，"
+  },
+  {
+    "file": "cz.data",
+    "word": "learn",
+    "before": " [learnt/learned-learnt/learned]　学， 学习； 获悉， 了解； 记住； 认识到",
+    "after": "学， 学习； 获悉， 了解； 记住； 认识到"
+  },
+  {
+    "file": "cz.data",
+    "word": "swing",
+    "before": " [swang-swung] 摇摆， 摇荡； 回转， 旋转； 突然转向",
+    "after": "摇摆， 摇荡； 回转， 旋转； 突然转向"
+  },
+  {
+    "file": "cz.data",
+    "word": "leave",
+    "before": " [left-left] 离开， 出发； 留下， 遗留； 遗忘； 听任， 让； 交托， 委托",
+    "after": "离开， 出发； 留下， 遗留； 遗忘； 听任， 让； 交托， 委托"
+  },
+  {
+    "file": "cz.data",
+    "word": "choose",
+    "before": " [chose-chosen] 选择， 挑选",
+    "after": "选择， 挑选"
+  },
+  {
+    "file": "cz.data",
+    "word": "speak",
+    "before": " [spoke-spoken] 说话， 讲话； 演说， 发言； 表达意见； 说， 讲；",
+    "after": "说话， 讲话； 演说， 发言； 表达意见； 说， 讲；"
+  },
+  {
+    "file": "cz.data",
+    "word": "shake",
+    "before": " [shook-shaken] 摇动， 摇； 颤抖， 震动",
+    "after": "摇动， 摇； 颤抖， 震动"
+  },
+  {
+    "file": "cz.data",
+    "word": "read",
+    "before": " [read-read]　读， 阅读； 朗读， 宣读； 读懂； 观",
+    "after": "读， 阅读； 朗读， 宣读； 读懂； 观"
+  },
+  {
+    "file": "cz.data",
+    "word": "run",
+    "before": " [run-run, running] 跑， 奔跑； 行驶， 驾驶； 蔓延， 伸展； 操作； 竞",
+    "after": "跑， 奔跑； 行驶， 驾驶； 蔓延， 伸展； 操作； 竞"
+  },
+  {
+    "file": "cz.data",
+    "word": "rise",
+    "before": " [rose-risen] 升起， 上升； 起立； 起床； 上涨， 增加； 反抗， 起义",
+    "after": "升起， 上升； 起立； 起床； 上涨， 增加； 反抗， 起义"
+  },
+  {
+    "file": "cz.data",
+    "word": "catch",
+    "before": " [caught-caught] 抓住， 接住； 偶然撞见； 染上， 感染； 赶上， 追上；",
+    "after": "抓住， 接住； 偶然撞见； 染上， 感染； 赶上， 追上；"
+  },
+  {
+    "file": "cz.data",
+    "word": "give",
+    "before": " [gave-given] 给予， 赠送； 供给， 提供； 做出， 发出",
+    "after": "给予， 赠送； 供给， 提供； 做出， 发出"
+  },
+  {
+    "file": "cz.data",
+    "word": "shut",
+    "before": " [shut-shut, shutting]　关闭， 关上； 打烊",
+    "after": "关闭， 关上； 打烊"
+  },
+  {
+    "file": "cz.data",
+    "word": "keep",
+    "before": " [kept-kept] 使保持， 使继续； 阻止， 防止； 履行， 遵守； 保存， 保",
+    "after": "使保持， 使继续； 阻止， 防止； 履行， 遵守； 保存， 保"
+  },
+  {
+    "file": "cz.data",
+    "word": "forbid",
+    "before": " [forbade-forbidden] 不许， 禁止； 妨碍， 阻止",
+    "after": "不许， 禁止； 妨碍， 阻止"
+  },
+  {
+    "file": "cz.data",
+    "word": "bring",
+    "before": " [brought-brought] 带来， 拿来； 把…引来； 促使， 使发生",
+    "after": "带来， 拿来； 把…引来； 促使， 使发生"
+  },
+  {
+    "file": "cz.data",
+    "word": "awake",
+    "before": " [awoke-awaken] 醒， 唤醒； 意识到， 醒悟",
+    "after": "醒， 唤醒； 意识到， 醒悟"
+  },
+  {
+    "file": "cz.data",
+    "word": "see",
+    "before": " [saw-seen] 看， 观看； 参见， 会晤； 领会， 理解； 想象； 把…看作； 发现； 体",
+    "after": "看， 观看； 参见， 会晤； 领会， 理解； 想象； 把…看作； 发现； 体"
+  },
+  {
+    "file": "cz.data",
+    "word": "do",
+    "before": " [did-done] 做， 从事； 实行， 进行； 尽力； 可用； 制作； 算出， 解答",
+    "after": "做， 从事； 实行， 进行； 尽力； 可用； 制作； 算出， 解答"
+  },
+  {
+    "file": "cz.data",
+    "word": "sit",
+    "before": " [sat-sat, sitting] 坐， 就座； 坐落， 被安放； 使坐， 使就座",
+    "after": "坐， 就座； 坐落， 被安放； 使坐， 使就座"
+  },
+  {
+    "file": "cz.data",
+    "word": "begin",
+    "before": " [began-begun, beginning] 开始",
+    "after": "开始"
+  },
+  {
+    "file": "cz.data",
+    "word": "become",
+    "before": " [became-become] 变成， 成为； 开始变得",
+    "after": "变成， 成为； 开始变得"
+  },
+  {
+    "file": "cz.data",
+    "word": "break",
+    "before": " [broke-broken] 打破； 损坏， 弄坏； 破坏， 违反； 中止， 中断； 打破；",
+    "after": "打破； 损坏， 弄坏； 破坏， 违反； 中止， 中断； 打破；"
+  },
+  {
+    "file": "cz.data",
+    "word": "draw",
+    "before": " [drew-drawn] 画， 描绘； 拖， 拉； 拔出， 抽出； 提取， 汲取； 引起； 吸引； 推",
+    "after": "画， 描绘； 拖， 拉； 拔出， 抽出； 提取， 汲取； 引起； 吸引； 推"
+  },
+  {
+    "file": "cz.data",
+    "word": "hear",
+    "before": " [heard-heard] 听见； 听到， 得知； 审讯， 听证； 收到…的信",
+    "after": "听见； 听到， 得知； 审讯， 听证； 收到…的信"
+  },
+  {
+    "file": "cz.data",
+    "word": "seek",
+    "before": " [sought-sought] 寻找， 追求； 征求， 请求； 试图， 设法； 探索",
+    "after": "寻找， 追求； 征求， 请求； 试图， 设法； 探索"
+  },
+  {
+    "file": "cz.data",
+    "word": "buy",
+    "before": " [bought-bought] 买， 买得； 向…行贿， 收买",
+    "after": "买， 买得； 向…行贿， 收买"
+  },
+  {
+    "file": "cz.data",
+    "word": "know",
+    "before": " [knew-known] 知道， 了解； 认识， 熟悉； 通晓， 会； 认出， 分辨",
+    "after": "知道， 了解； 认识， 熟悉； 通晓， 会； 认出， 分辨"
+  },
+  {
+    "file": "cz.data",
+    "word": "sing",
+    "before": " [sang-sung] 唱， 演唱； 鸡鸣",
+    "after": "唱， 演唱； 鸡鸣"
+  },
+  {
+    "file": "cz.data",
+    "word": "teach",
+    "before": " [taught-taught] 教， 讲授； 教导， 教训",
+    "after": "教， 讲授； 教导， 教训"
+  },
+  {
+    "file": "cz.data",
+    "word": "come",
+    "before": " [came-come] 来， 来到； 达到， 至； 产生， 来； 变成； 实现； 开始；",
+    "after": "来， 来到； 达到， 至； 产生， 来； 变成； 实现； 开始；"
+  },
+  {
+    "file": "cz.data",
+    "word": "get",
+    "before": " [got-gotten/got] 获得， 弄到； 收到； 变得； 拿来； 理解， 听到； 到达",
+    "after": "获得， 弄到； 收到； 变得； 拿来； 理解， 听到； 到达"
+  },
+  {
+    "file": "cz.data",
+    "word": "sell",
+    "before": " [sold-sold] 卖， 出售； 推销",
+    "after": "卖， 出售； 推销"
+  },
+  {
+    "file": "cz.data",
+    "word": "send",
+    "before": " [sent-sent] 送， 寄； 派遣， 打发； 发送； 发射",
+    "after": "送， 寄； 派遣， 打发； 发送； 发射"
+  },
+  {
+    "file": "cz.data",
+    "word": "regret",
+    "before": " [regretted-regretted, regretting] 懊悔； 遗憾， 抱歉",
+    "after": "懊悔； 遗憾， 抱歉"
+  },
+  {
+    "file": "cz.data",
+    "word": "flee",
+    "before": " [fled-fled] 逃离， 逃跑",
+    "after": "逃离， 逃跑"
+  },
+  {
+    "file": "gz.data",
+    "word": "could",
+    "before": "能，会，可以〔can 的过去式〕",
+    "after": "能，会，可以"
+  }
+]

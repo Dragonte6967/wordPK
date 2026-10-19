@@ -5,12 +5,15 @@ import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createAdminAuth } from './admin.js'
+import { ExpressPeerServer } from 'peer'
+import { WebSocketServer } from 'ws'
+import { createPeerRooms } from './peerRooms.js'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 function loadWords(filename) {
   return readFileSync(join(root,filename),'utf8').split(/\r?\n/).filter(Boolean).flatMap(line => { try { const x=JSON.parse(line),c=x.content?.word?.content,t=c?.trans?.[0];return t?.tranCn?[{word:x.headWord,meaning:t.tranCn,pos:t.pos||'词',phonetic:c.usphone||c.ukphone||''}]:[] } catch { return [] } })
 }
-const dictionaries=Object.fromEntries(Object.entries({cet46:['四六级','cet46.data'],ky:['考研','ky.data'],cz:['中考','cz.data'],gz:['高考','gz.data']}).map(([key,[label,file]])=>{const words=loadWords(file),options=[...new Map(words.map(w=>[`${w.pos}|${w.meaning}`,{meaning:w.meaning,pos:w.pos}])).values()];return [key,{label,words,options}]}))
+const dictionaries=Object.fromEntries(Object.entries({cet46:['四六级','cet46.data'],ky:['考研','ky.data'],cz:['中考','cz.data'],gz:['高考','gz.data'],com:['常用','com.data'],wtf:['我想挑战一下我的软肋','wtf.data']}).map(([key,[label,file]])=>{const words=loadWords(file),options=[...new Map(words.map(w=>[`${w.pos}|${w.meaning}`,{meaning:w.meaning,pos:w.pos}])).values()];return [key,{label,words,options}]}))
 const webPort = Number(process.env.PORT || 3000)
 const socketPort = Number(process.env.SOCKET_PORT || 3001)
 const startCountdownMs = Number(process.env.START_COUNTDOWN_MS || 3000)
@@ -22,7 +25,7 @@ mkdirSync(dirname(logFile),{recursive:true})
 const cleanIp = ip => String(ip || '').replace(/^::ffff:/,'')
 const logTimeFormatter=new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false})
 const roomTypeLabel={balanced:'平衡对战',unbalanced:'人数不平衡对战',marathon:'马拉松'}
-const destroyReasonLabel={all_players_left:'所有玩家均已离开',marathon_10_unanswered:'马拉松连续 10 题无人作答',unknown:'未注明'}
+const destroyReasonLabel={all_players_left:'所有玩家均已离开',marathon_10_unanswered:'马拉松连续 10 题无人作答',peer_connection_lost:'低延时连接或房主已离线',unknown:'未注明'}
 function readableLog(entry) {
   const time=logTimeFormatter.format(new Date(entry.timestamp)),title=`\n[${time}]`
   if(entry.event==='room_created')return `${title} 房间已创建\n  房间码：${entry.roomCode}\n  赛制：${roomTypeLabel[entry.roomType]||entry.roomType}\n  创建者 IP：${entry.ip}`
@@ -91,10 +94,22 @@ app.use(express.static(join(root, 'dist'),{setHeaders:(res,path)=>{
 }}))
 app.use((_, res) => res.set('Cache-Control','no-store').sendFile(join(root, 'dist', 'index.html')))
 const webServer = createServer(app)
-const socketServer = createServer()
+const peerApp=express()
+const socketServer = createServer(peerApp)
+peerApp.use('/peerjs',ExpressPeerServer(socketServer,{
+  path:'/',proxied:true,allow_discovery:false,
+  createWebSocketServer:({path})=>{
+    const signaling=new WebSocketServer({noServer:true,path})
+    socketServer.on('upgrade',(request,socket,head)=>{
+      if(request.url?.split('?')[0]===path)signaling.handleUpgrade(request,socket,head,ws=>signaling.emit('connection',ws,request))
+    })
+    return signaling
+  },
+}))
 const io = new Server(socketServer, {
   cors: { origin: true, methods: ['GET', 'POST'] },
   transports: ['websocket'],
+  destroyUpgrade: false,
   perMessageDeflate: { threshold: 128 },
 })
 const rooms = new Map()
@@ -131,13 +146,14 @@ function publicRoom(room) {
   if(room.startsAt!=null)data.a=room.startsAt
   if(room.marathonWinnerId)data.w=room.marathonWinnerId
   if(room.status==='finished')data.r=room.results.map(compactResult)
+  if(room.peer)data.v=peerRooms.descriptor(room)
   return data
 }
 function emit(room) { io.to(room.code).compress(true).emit('r', publicRoom(room)) }
 function emitScore(room,player) { io.to(room.code).emit('s',[room.index,player.id,player.score]) }
 function destroyRoom(room, message, reason='unknown') {
   if(rooms.get(room.code)!==room)return
-  clearTimeout(room.timer);clearTimeout(room.startTimer);clearTimeout(room.prefetchTimer)
+  clearTimeout(room.timer);clearTimeout(room.startTimer);clearTimeout(room.prefetchTimer);clearTimeout(room.peerTimer)
   rooms.delete(room.code)
   logEvent('room_destroyed',{roomCode:room.code,roomType:roomType(room),ip:room.creatorIp,reason})
   if(message){io.to(room.code).compress(true).emit('x',message);io.in(room.code).socketsLeave(room.code)}
@@ -193,7 +209,9 @@ function beginGame(room){
   room.status='playing';room.startsAt=null
   makeQuestion(room);emit(room)
 }
+const peerRooms=createPeerRooms(io,{rooms,emit,dictionaries,destroyRoom,logEvent,logMatchEnd,roomType})
 io.on('connection', socket => {
+  peerRooms.attach(socket)
   socket.emit('l',loadState)
   socket.on('t', done => {
     const serverReceived=Date.now()
@@ -206,7 +224,7 @@ io.on('connection', socket => {
     room.players.set(socket.id,{id:socket.id,name,team:mode==='marathon'?null:1,score:0,ready:true,connected:true});rooms.set(id,room);socket.join(id);logEvent('room_created',{roomCode:id,roomType:roomType(room),ip:room.creatorIp});done({ok:true,room:publicRoom(room)})
   })
   socket.on('room:preview', ({ code:id }, done) => { const room=rooms.get(id?.toUpperCase());if(!room)return done?.({ok:false,message:'房间码不存在'});if(room.status!=='lobby')return done?.({ok:false,message:'对战已经开始'});const capacity=room.config.mode==='marathon'?10:room.config.size*2;if(room.players.size>=capacity)return done?.({ok:false,message:'房间已满'});done?.({ok:true,preview:{code:room.code,mode:room.config.mode,seconds:room.config.seconds,target:room.config.target,minMinutes:room.config.mode==='marathon'?marathonMinutes(room.config.seconds):null,players:room.players.size,capacity}}) })
-  socket.on('room:join', ({ code:id, name, team }, done) => { const room=rooms.get(id?.toUpperCase());if(!room)return done({ok:false,message:'房间码不存在'});if(room.status!=='lobby')return done({ok:false,message:'对战已经开始'});const marathon=room.config.mode==='marathon',capacity=marathon?10:room.config.size*2;if(room.players.size>=capacity)return done({ok:false,message:'房间已满'});if(!marathon&&[...room.players.values()].filter(p=>p.team===team).length>=room.config.size)return done({ok:false,message:'该队已满'});room.players.set(socket.id,{id:socket.id,name,team:marathon?null:team,score:0,ready:false,connected:true});socket.join(room.code);emit(room);done({ok:true,room:publicRoom(room)}) })
+  socket.on('room:join', ({ code:id, name, team }, done) => { const room=rooms.get(id?.toUpperCase());if(!room)return done({ok:false,message:'房间码不存在'});if(room.status!=='lobby')return done({ok:false,message:'对战已经开始'});const marathon=room.config.mode==='marathon',capacity=marathon?10:room.config.size*2;if(room.players.size>=capacity)return done({ok:false,message:'房间已满'});if(!marathon&&[...room.players.values()].filter(p=>p.team===team).length>=room.config.size)return done({ok:false,message:'该队已满'});if(room.peer)peerRooms.reset(room,'有新玩家加入，已回到服务器模式；房主可重新尝试升级');room.players.set(socket.id,{id:socket.id,name,team:marathon?null:team,score:0,ready:false,connected:true});socket.join(room.code);emit(room);done({ok:true,room:publicRoom(room)}) })
   socket.on('room:ready', ({ ready }, done) => { const room=[...rooms.values()].find(r=>r.players.has(socket.id));if(!room)return done?.({ok:false,message:'房间不存在'});if(room.status!=='lobby')return done?.({ok:false,message:'当前无法修改准备状态'});const player=room.players.get(socket.id);if(socket.id===room.host){player.ready=true;return done?.({ok:true})}player.ready=Boolean(ready);emit(room);done?.({ok:true}) })
   socket.on('room:update-settings', (patch, done) => { const room=[...rooms.values()].find(r=>r.host===socket.id);if(!room)return done?.({ok:false,message:'只有房主可以修改房间设置'});if(room.status!=='lobby')return done?.({ok:false,message:'对战开始后无法修改设置'});if(Object.hasOwn(patch||{},'seconds'))room.config.seconds=Math.min(10,Math.max(3,Number(patch.seconds)||5));if(Object.hasOwn(patch||{},'dictionary')&&dictionaries[patch.dictionary])room.config.dictionary=patch.dictionary;if(room.config.mode==='standard'){if(Object.hasOwn(patch||{},'rounds'))room.config.rounds=Math.min(50,Math.max(1,Number(patch.rounds)||20));if(Object.hasOwn(patch||{},'unbalanced'))room.config.unbalanced=Boolean(patch.unbalanced)}for(const player of room.players.values())player.ready=player.id===room.host;emit(room);done?.({ok:true}) })
   socket.on('room:switch-team', ({ team }, done) => { const room=[...rooms.values()].find(r=>r.players.has(socket.id));if(!room)return done?.({ok:false,message:'房间不存在'});if(room.config.mode==='marathon')return done?.({ok:true});if(room.status!=='lobby')return done?.({ok:false,message:'游戏已开始，无法换队'});if(team!==1&&team!==2)return done?.({ok:false,message:'队伍无效'});const player=room.players.get(socket.id);if(player.team===team)return done?.({ok:true});if([...room.players.values()].filter(p=>p.team===team).length>=room.config.size)return done?.({ok:false,message:'该队已满'});player.team=team;emit(room);done?.({ok:true}) })
@@ -224,7 +242,15 @@ io.on('connection', socket => {
     emit(room);done?.({ok:true})
   })
   socket.on('answer', ({ answer, index }, done) => { const room=[...rooms.values()].find(r=>r.players.has(socket.id));if(!room||room.status!=='playing'||index!==room.index||Date.now()>room.deadline||!Number.isInteger(answer)||answer<0||answer>3)return done?.([0]);if(room.answered.has(socket.id)){const result=room.answered.get(socket.id);return done?.([1,result.correct?1:0,result.answer,result.points,result.choice])}const correctAnswer=room.question.answer,p=room.players.get(socket.id),correct=answer===correctAnswer;const percent=Math.max(0,Math.min(100,Math.round((room.deadline-Date.now())/(room.config.seconds*10))));const points=correct?percent:-percent;p.score+=points;const result={ok:true,correct,answer:correctAnswer,points,choice:answer};room.answered.set(socket.id,result);if(room.config.mode==='marathon'&&p.score>MARATHON_TARGET&&!room.marathonWinnerId){room.marathonWinnerId=p.id;clearTimeout(room.timer);finishQuestion(room,index)}else emitScore(room,p);done?.([1,correct?1:0,correctAnswer,points,answer]) })
-  socket.on('disconnect', () => { for(const room of rooms.values())if(room.players.has(socket.id)){const player=room.players.get(socket.id),retain=room.status==='playing'||room.status==='finished';if(retain)player.connected=false;else room.players.delete(socket.id);if(room.host===socket.id){const next=[...room.players.values()].find(p=>p.connected);if(next){room.host=next.id;next.ready=true}}if(![...room.players.values()].some(p=>p.connected))destroyRoom(room,null,'all_players_left');else emit(room)} })
+  socket.on('disconnect', () => { for(const room of rooms.values())if(room.players.has(socket.id)){
+    const player=room.players.get(socket.id),retain=room.status==='playing'||room.status==='finished'||room.peer&&room.status==='countdown'
+    if(retain)player.connected=false;else room.players.delete(socket.id)
+    if(![...room.players.values()].some(p=>p.connected)){destroyRoom(room,null,'all_players_left');continue}
+    if(room.peer&&room.host===socket.id&&room.status!=='lobby'){destroyRoom(room,'低延时模式的房主已离线，房间已关闭','peer_connection_lost');continue}
+    if(room.host===socket.id){const next=[...room.players.values()].find(p=>p.connected);if(next){room.host=next.id;next.ready=true}}
+    if(room.peer&&room.status==='lobby')peerRooms.reset(room,'房间成员发生变化，已回到服务器模式')
+    else emit(room)
+  } })
 })
 webServer.listen(webPort, '0.0.0.0', () => console.log(`Word PK web: http://0.0.0.0:${webPort}`))
 socketServer.listen(socketPort, '0.0.0.0', () => console.log(`Word PK socket: ws://0.0.0.0:${socketPort}`))

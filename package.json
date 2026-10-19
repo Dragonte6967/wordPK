@@ -12,9 +12,14 @@
   "dependencies": {
     "@vitejs/plugin-vue": "latest",
     "express": "latest",
+    "peer": "^1.0.2",
+    "peerjs": "^1.5.5",
     "socket.io": "latest",
     "socket.io-client": "latest",
-    "vue": "latest"
+    "vue": "latest",
+    "ws": "^8.22.0"
   },
-  "devDependencies": { "vite": "latest" }
+  "devDependencies": {
+    "vite": "latest"
+  }
 }
