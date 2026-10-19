@@ -11,7 +11,7 @@
 - 最多 10 人参加的马拉松赛，率先超过 4219 分获胜。
 - 房主可设置词库、题目数量、每题时间和是否允许人数不平衡。
 - 提供四六级、考研、中考、高考、常用和“我想挑战一下我的软肋”六套词库。
-- 常用词库已清理明显的人名、地名、姓氏、重复变形、缩写、单位及网络用语，保留 6,573 条；移除条目和原因见 `docs/dictionary-cleanup/`，清理脚本为 `scripts/clean-common-dictionary.mjs` 和 `scripts/clean-common-abbreviations.mjs`（默认仅预览）。
+- 常用词库已清理明显的人名、地名、姓氏、重复变形、缩写、单位及网络用语；清理脚本为 `scripts/clean-common-dictionary.mjs` 和 `scripts/clean-common-abbreviations.mjs`（默认仅预览）。清理报告与恢复归档仅保存在本地 `docs/dictionary-cleanup/`，不纳入版本控制。
 - 房间码邀请、队伍切换、队名修改、准备状态及原房间再来一局。
 - 服务器统一控制题目、倒计时、计分和结算。
 - 测试分支支持 PeerJS 低延时模式：房主浏览器承担出题、计时、判分、准备与队伍规则、结算等裁判工作。

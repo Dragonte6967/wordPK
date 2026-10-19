@@ -20,6 +20,10 @@ pnpm-debug.log*
 docs/.capture-profile-*/
 docs/edge-test-profile*/
 
+# Local dictionary cleanup reports and recovery archives
+docs/dictionary-cleanup/
+doc/dictionary-cleanup/
+
 # Editor and operating-system files
 .idea/
 .vscode/
